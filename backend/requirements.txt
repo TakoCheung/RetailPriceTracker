@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+sqlmodel
+sqlalchemy[asyncio]
+asyncpg
+pydantic
+alembic
+celery
+redis
+python-dotenv
+websockets
+httpx
