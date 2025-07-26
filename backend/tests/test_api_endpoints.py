@@ -205,7 +205,10 @@ class TestProviderAPI:
         response = client.post("/api/providers/", json=provider_data)
 
         assert response.status_code == 422
-        assert "validation error" in response.json()["detail"]
+        errors = response.json()["detail"]
+        assert any(
+            "Rate limit must be greater than 0" in str(error) for error in errors
+        )
 
 
 class TestPriceRecordAPI:
