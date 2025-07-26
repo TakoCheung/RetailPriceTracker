@@ -470,6 +470,139 @@ class TestPriceRecordAPI:
         assert "not found" in data["detail"].lower()
 
 
+class TestUserAPI:
+    """TDD tests for User API endpoints."""
+
+    def test_create_user_success(self, client):
+        """Test creating a new user successfully."""
+        user_data = {
+            "email": "john.doe@example.com",
+            "name": "John Doe",
+            "role": "admin",
+        }
+
+        response = client.post("/api/users/", json=user_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "john.doe@example.com"
+        assert data["name"] == "John Doe"
+        assert data["role"] == "admin"
+        assert data["is_active"] is True
+        assert "id" in data
+        assert "created_at" in data
+        assert "updated_at" in data
+
+    def test_create_user_invalid_email(self, client):
+        """Test creating a user with invalid email."""
+        user_data = {
+            "email": "invalid-email",
+            "name": "John Doe",
+            "role": "ADMIN",
+        }
+
+        response = client.post("/api/users/", json=user_data)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_get_users_list(self, client):
+        """Test retrieving list of users."""
+        # First create a user
+        user_data = {
+            "email": "create.user@example.com",
+            "name": "Create User",
+            "role": "viewer",
+        }
+        client.post("/api/users/", json=user_data)
+
+        # Test getting users list
+        response = client.get("/api/users/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["email"] == "create.user@example.com"
+
+    def test_get_user_by_id(self, client):
+        """Test retrieving a specific user by ID."""
+        # First create a user
+        user_data = {
+            "email": "bob.smith@example.com",
+            "name": "Bob Smith",
+            "role": "admin",
+        }
+        create_response = client.post("/api/users/", json=user_data)
+        user_id = create_response.json()["id"]
+
+        # Test getting specific user
+        response = client.get(f"/api/users/{user_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == user_id
+        assert data["email"] == "bob.smith@example.com"
+        assert data["name"] == "Bob Smith"
+        assert data["role"] == "admin"
+
+    def test_update_user(self, client):
+        """Test updating an existing user."""
+        # First create a user
+        user_data = {
+            "email": "alice.brown@example.com",
+            "name": "Alice Brown",
+            "role": "viewer",
+        }
+        create_response = client.post("/api/users/", json=user_data)
+        user_id = create_response.json()["id"]
+
+        # Update the user
+        update_data = {
+            "name": "Alice Johnson",
+            "role": "admin",
+            "is_active": False,
+        }
+        response = client.patch(f"/api/users/{user_id}", json=update_data)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == user_id
+        assert data["name"] == "Alice Johnson"
+        assert data["role"] == "admin"
+        assert data["is_active"] is False
+        assert data["email"] == "alice.brown@example.com"  # Should remain unchanged
+
+    def test_delete_user(self, client):
+        """Test deleting a user."""
+        # First create a user
+        user_data = {
+            "email": "charlie.wilson@example.com",
+            "name": "Charlie Wilson",
+            "role": "admin",
+        }
+        create_response = client.post("/api/users/", json=user_data)
+        user_id = create_response.json()["id"]
+
+        # Delete the user
+        response = client.delete(f"/api/users/{user_id}")
+
+        assert response.status_code == 204
+
+        # Verify it's gone
+        get_response = client.get(f"/api/users/{user_id}")
+        assert get_response.status_code == 404
+
+    def test_get_user_not_found(self, client):
+        """Test getting a non-existent user."""
+        response = client.get("/api/users/99999")
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["detail"].lower()
+
+
 class TestHealthAPI:
     """TDD tests for health and status endpoints."""
 
