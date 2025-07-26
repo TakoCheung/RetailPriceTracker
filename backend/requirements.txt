@@ -3,6 +3,7 @@ uvicorn
 sqlmodel
 sqlalchemy[asyncio]
 asyncpg
+psycopg2-binary
 pydantic[email]
 alembic
 celery
@@ -12,7 +13,6 @@ websockets
 httpx
 pytest
 pytest-asyncio
-httpx
 freezegun
 factory-boy
 email-validator
