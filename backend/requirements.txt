@@ -8,6 +8,9 @@ pydantic[email]
 alembic
 celery
 redis
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
 python-dotenv
 websockets
 httpx

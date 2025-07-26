@@ -102,3 +102,60 @@ class UserPreferencesResponse(BaseModel):
 class UserPreferenceUpdate(BaseModel):
     default_currency: Optional[str]
     notify_email: Optional[bool]
+
+
+# Authentication Schemas
+class UserRegister(BaseModel):
+    """Schema for user registration."""
+
+    email: str = Field(..., max_length=255, description="User email address")
+    name: str = Field(..., min_length=2, max_length=100, description="User full name")
+    password: str = Field(
+        ..., min_length=8, max_length=128, description="User password"
+    )
+    role: str = Field(default="viewer", description="User role")
+
+
+class UserLogin(BaseModel):
+    """Schema for user login."""
+
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+
+class Token(BaseModel):
+    """Schema for JWT token response."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: dict
+
+
+class TokenRefresh(BaseModel):
+    """Schema for token refresh response."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class UserProfile(BaseModel):
+    """Schema for user profile response."""
+
+    id: int
+    email: str
+    name: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuthMessage(BaseModel):
+    """Schema for authentication messages."""
+
+    message: str

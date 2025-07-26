@@ -1140,6 +1140,238 @@ class TestUserPreferencesAPI:
         assert len(data) >= 2
 
 
+class TestAuthAPI:
+    """TDD tests for Authentication API endpoints."""
+
+    def test_register_user_success(self, client):
+        """Test user registration with valid data."""
+        user_data = {
+            "email": "newuser@example.com",
+            "name": "New User",
+            "password": "SecurePassword123!",
+            "role": "viewer",
+        }
+
+        response = client.post("/api/auth/register", json=user_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "newuser@example.com"
+        assert data["name"] == "New User"
+        assert data["role"] == "viewer"
+        assert "id" in data
+        assert "password" not in data  # Password should not be returned
+        assert "created_at" in data
+
+    def test_register_user_duplicate_email(self, client):
+        """Test registration with duplicate email fails."""
+        user_data = {
+            "email": "duplicate@example.com",
+            "name": "First User",
+            "password": "Password123!",
+            "role": "viewer",
+        }
+
+        # First registration
+        response1 = client.post("/api/auth/register", json=user_data)
+        assert response1.status_code == 201
+
+        # Duplicate registration
+        user_data["name"] = "Second User"
+        response2 = client.post("/api/auth/register", json=user_data)
+
+        assert response2.status_code == 409
+        data = response2.json()
+        assert "already registered" in data["detail"].lower()
+
+    def test_register_user_weak_password(self, client):
+        """Test registration with weak password fails."""
+        user_data = {
+            "email": "weakpass@example.com",
+            "name": "Weak Pass User",
+            "password": "123",  # Too weak
+            "role": "viewer",
+        }
+
+        response = client.post("/api/auth/register", json=user_data)
+
+        assert response.status_code == 422
+        data = response.json()
+        # FastAPI returns a list of validation errors
+        assert "detail" in data
+        errors = (
+            data["detail"] if isinstance(data["detail"], list) else [data["detail"]]
+        )
+        assert any("password" in str(error).lower() for error in errors)
+
+    def test_login_success(self, client):
+        """Test user login with valid credentials."""
+        # First register a user
+        user_data = {
+            "email": "loginuser@example.com",
+            "name": "Login User",
+            "password": "LoginPassword123!",
+            "role": "admin",
+        }
+        client.post("/api/auth/register", json=user_data)
+
+        # Now login
+        login_data = {"email": "loginuser@example.com", "password": "LoginPassword123!"}
+
+        response = client.post("/api/auth/login", json=login_data)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+        assert "token_type" in data
+        assert data["token_type"] == "bearer"
+        assert "expires_in" in data
+        assert "user" in data
+        assert data["user"]["email"] == "loginuser@example.com"
+
+    def test_login_invalid_email(self, client):
+        """Test login with non-existent email fails."""
+        login_data = {
+            "email": "nonexistent@example.com",
+            "password": "SomePassword123!",
+        }
+
+        response = client.post("/api/auth/login", json=login_data)
+
+        assert response.status_code == 401
+        data = response.json()
+        assert "invalid credentials" in data["detail"].lower()
+
+    def test_login_invalid_password(self, client):
+        """Test login with wrong password fails."""
+        # First register a user
+        user_data = {
+            "email": "wrongpass@example.com",
+            "name": "Wrong Pass User",
+            "password": "CorrectPassword123!",
+            "role": "viewer",
+        }
+        client.post("/api/auth/register", json=user_data)
+
+        # Try to login with wrong password
+        login_data = {"email": "wrongpass@example.com", "password": "WrongPassword123!"}
+
+        response = client.post("/api/auth/login", json=login_data)
+
+        assert response.status_code == 401
+        data = response.json()
+        assert "invalid credentials" in data["detail"].lower()
+
+    def test_get_current_user(self, client):
+        """Test getting current user info with valid token."""
+        # Register and login to get token
+        user_data = {
+            "email": "currentuser@example.com",
+            "name": "Current User",
+            "password": "CurrentPassword123!",
+            "role": "admin",
+        }
+        client.post("/api/auth/register", json=user_data)
+
+        login_data = {
+            "email": "currentuser@example.com",
+            "password": "CurrentPassword123!",
+        }
+        login_response = client.post("/api/auth/login", json=login_data)
+        token = login_response.json()["access_token"]
+
+        # Get current user info
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get("/api/auth/me", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["email"] == "currentuser@example.com"
+        assert data["name"] == "Current User"
+        assert data["role"] == "admin"
+        assert "password" not in data
+
+    def test_get_current_user_invalid_token(self, client):
+        """Test getting current user with invalid token fails."""
+        headers = {"Authorization": "Bearer invalid_token"}
+        response = client.get("/api/auth/me", headers=headers)
+
+        assert response.status_code == 401
+        data = response.json()
+        assert "invalid token" in data["detail"].lower()
+
+    def test_get_current_user_no_token(self, client):
+        """Test getting current user without token fails."""
+        response = client.get("/api/auth/me")
+
+        # FastAPI with HTTPBearer returns 403, not 401 when no auth header
+        assert response.status_code == 403
+        data = response.json()
+        assert (
+            "not authenticated" in data["detail"].lower()
+            or "authorization" in data["detail"].lower()
+        )
+
+    def test_refresh_token(self, client):
+        """Test refreshing access token."""
+        # Register and login to get token
+        user_data = {
+            "email": "refreshuser@example.com",
+            "name": "Refresh User",
+            "password": "RefreshPassword123!",
+            "role": "viewer",
+        }
+        client.post("/api/auth/register", json=user_data)
+
+        login_data = {
+            "email": "refreshuser@example.com",
+            "password": "RefreshPassword123!",
+        }
+        login_response = client.post("/api/auth/login", json=login_data)
+        token = login_response.json()["access_token"]
+
+        # Refresh token
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.post("/api/auth/refresh", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+        assert "token_type" in data
+        assert data["token_type"] == "bearer"
+        assert "expires_in" in data
+
+    def test_logout_success(self, client):
+        """Test user logout."""
+        # Register and login to get token
+        user_data = {
+            "email": "logoutuser@example.com",
+            "name": "Logout User",
+            "password": "LogoutPassword123!",
+            "role": "viewer",
+        }
+        client.post("/api/auth/register", json=user_data)
+
+        login_data = {
+            "email": "logoutuser@example.com",
+            "password": "LogoutPassword123!",
+        }
+        login_response = client.post("/api/auth/login", json=login_data)
+        token = login_response.json()["access_token"]
+
+        # Logout
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.post("/api/auth/logout", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "successfully logged out" in data["message"].lower()
+
+        # Verify token is invalidated
+        me_response = client.get("/api/auth/me", headers=headers)
+        assert me_response.status_code == 401
+
+
 class TestHealthAPI:
     """TDD tests for health and status endpoints."""
 
