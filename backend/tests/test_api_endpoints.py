@@ -335,6 +335,140 @@ class TestPriceRecordAPI:
         data = response.json()
         assert isinstance(data, list)
 
+    def test_get_all_price_records(self, client, sample_products):
+        """Test retrieving all price records."""
+        # First create a provider and price record
+        provider_data = {
+            "name": "BestBuy",
+            "base_url": "https://api.bestbuy.com",
+            "rate_limit": 500,
+        }
+        provider_response = client.post("/api/providers/", json=provider_data)
+        provider_id = provider_response.json()["id"]
+
+        price_data = {
+            "product_id": sample_products[0].id,
+            "provider_id": provider_id,
+            "price": 799.99,
+            "currency": "USD",
+            "is_available": True,
+        }
+        client.post("/api/price-records/", json=price_data)
+
+        # Test getting all price records
+        response = client.get("/api/price-records/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["price"] == 799.99
+
+    def test_get_price_record_by_id(self, client, sample_products):
+        """Test retrieving a specific price record by ID."""
+        # First create a provider and price record
+        provider_data = {
+            "name": "Walmart",
+            "base_url": "https://api.walmart.com",
+            "rate_limit": 750,
+        }
+        provider_response = client.post("/api/providers/", json=provider_data)
+        provider_id = provider_response.json()["id"]
+
+        price_data = {
+            "product_id": sample_products[0].id,
+            "provider_id": provider_id,
+            "price": 649.99,
+            "currency": "USD",
+            "is_available": True,
+        }
+        create_response = client.post("/api/price-records/", json=price_data)
+        price_record_id = create_response.json()["id"]
+
+        # Test getting specific price record
+        response = client.get(f"/api/price-records/{price_record_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == price_record_id
+        assert data["price"] == 649.99
+        assert data["currency"] == "USD"
+
+    def test_update_price_record(self, client, sample_products):
+        """Test updating an existing price record."""
+        # First create a provider and price record
+        provider_data = {
+            "name": "Target",
+            "base_url": "https://api.target.com",
+            "rate_limit": 600,
+        }
+        provider_response = client.post("/api/providers/", json=provider_data)
+        provider_id = provider_response.json()["id"]
+
+        price_data = {
+            "product_id": sample_products[0].id,
+            "provider_id": provider_id,
+            "price": 899.99,
+            "currency": "USD",
+            "is_available": True,
+        }
+        create_response = client.post("/api/price-records/", json=price_data)
+        price_record_id = create_response.json()["id"]
+
+        # Update the price record
+        update_data = {
+            "price": 799.99,
+            "is_available": False,
+        }
+        response = client.patch(
+            f"/api/price-records/{price_record_id}", json=update_data
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == price_record_id
+        assert data["price"] == 799.99
+        assert data["is_available"] is False
+        assert data["currency"] == "USD"  # Should remain unchanged
+
+    def test_delete_price_record(self, client, sample_products):
+        """Test deleting a price record."""
+        # First create a provider and price record
+        provider_data = {
+            "name": "Newegg",
+            "base_url": "https://api.newegg.com",
+            "rate_limit": 400,
+        }
+        provider_response = client.post("/api/providers/", json=provider_data)
+        provider_id = provider_response.json()["id"]
+
+        price_data = {
+            "product_id": sample_products[0].id,
+            "provider_id": provider_id,
+            "price": 1099.99,
+            "currency": "USD",
+            "is_available": True,
+        }
+        create_response = client.post("/api/price-records/", json=price_data)
+        price_record_id = create_response.json()["id"]
+
+        # Delete the price record
+        response = client.delete(f"/api/price-records/{price_record_id}")
+
+        assert response.status_code == 204
+
+        # Verify it's gone
+        get_response = client.get(f"/api/price-records/{price_record_id}")
+        assert get_response.status_code == 404
+
+    def test_get_price_record_not_found(self, client):
+        """Test getting a non-existent price record."""
+        response = client.get("/api/price-records/99999")
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["detail"].lower()
+
 
 class TestHealthAPI:
     """TDD tests for health and status endpoints."""
