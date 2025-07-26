@@ -703,6 +703,7 @@ class TestAlertAPI:
         user_data = {
             "email": "channel.test@example.com",
             "name": "Channel Test",
+            "password": "ChannelPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -727,6 +728,7 @@ class TestAlertAPI:
         user_data = {
             "email": "list.user@example.com",
             "name": "List User",
+            "password": "ListPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -755,6 +757,7 @@ class TestAlertAPI:
         user1_data = {
             "email": "filter1.user@example.com",
             "name": "Filter User 1",
+            "password": "Filter1Password123!",
             "role": "admin",
         }
         user1_response = client.post("/api/users/", json=user1_data)
@@ -763,6 +766,7 @@ class TestAlertAPI:
         user2_data = {
             "email": "filter2.user@example.com",
             "name": "Filter User 2",
+            "password": "Filter2Password123!",
             "role": "admin",
         }
         user2_response = client.post("/api/users/", json=user2_data)
@@ -799,6 +803,7 @@ class TestAlertAPI:
         user_data = {
             "email": "specific.user@example.com",
             "name": "Specific User",
+            "password": "SpecificPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -828,6 +833,7 @@ class TestAlertAPI:
         user_data = {
             "email": "update.user@example.com",
             "name": "Update User",
+            "password": "UpdatePassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -863,6 +869,7 @@ class TestAlertAPI:
         user_data = {
             "email": "delete.user@example.com",
             "name": "Delete User",
+            "password": "DeletePassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -904,6 +911,7 @@ class TestUserPreferencesAPI:
         user_data = {
             "email": "preferences.user@example.com",
             "name": "Preferences User",
+            "password": "PreferencesPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -937,6 +945,7 @@ class TestUserPreferencesAPI:
         user_data = {
             "email": "duplicate.user@example.com",
             "name": "Duplicate User",
+            "password": "DuplicatePassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -963,6 +972,7 @@ class TestUserPreferencesAPI:
         user_data = {
             "email": "get.preferences@example.com",
             "name": "Get Preferences",
+            "password": "GetPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -991,6 +1001,7 @@ class TestUserPreferencesAPI:
         user_data = {
             "email": "preferences.id@example.com",
             "name": "Preferences ID",
+            "password": "PreferencesIdPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -1018,6 +1029,7 @@ class TestUserPreferencesAPI:
         user_data = {
             "email": "update.preferences@example.com",
             "name": "Update Preferences",
+            "password": "UpdatePreferencesPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -1055,6 +1067,7 @@ class TestUserPreferencesAPI:
         user_data = {
             "email": "delete.preferences@example.com",
             "name": "Delete Preferences",
+            "password": "DeletePreferencesPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -1104,6 +1117,7 @@ class TestUserPreferencesAPI:
         user_data = {
             "email": "invalid.items@example.com",
             "name": "Invalid Items",
+            "password": "InvalidItemsPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -1129,6 +1143,7 @@ class TestUserPreferencesAPI:
             user_data = {
                 "email": f"list{i}@example.com",
                 "name": f"List User {i}",
+                "password": f"ListUser{i}Password123!",
                 "role": "admin",
             }
             user_response = client.post("/api/users/", json=user_data)
