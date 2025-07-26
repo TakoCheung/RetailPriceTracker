@@ -61,6 +61,44 @@ class AlertResponse(BaseModel):
         from_attributes = True
 
 
+class UserPreferencesCreate(BaseModel):
+    """Schema for creating user preferences."""
+
+    user_id: int
+    default_currency: str = Field(default="USD", max_length=3)
+    timezone: str = Field(default="UTC", max_length=50)
+    email_notifications: bool = Field(default=True)
+    webhook_url: Optional[str] = Field(default=None, max_length=2048)
+    items_per_page: int = Field(default=20, ge=10, le=100)
+
+
+class UserPreferencesUpdate(BaseModel):
+    """Schema for updating user preferences."""
+
+    default_currency: Optional[str] = Field(None, max_length=3)
+    timezone: Optional[str] = Field(None, max_length=50)
+    email_notifications: Optional[bool] = None
+    webhook_url: Optional[str] = Field(None, max_length=2048)
+    items_per_page: Optional[int] = Field(None, ge=10, le=100)
+
+
+class UserPreferencesResponse(BaseModel):
+    """Schema for user preferences responses."""
+
+    id: int
+    user_id: int
+    default_currency: str
+    timezone: str
+    email_notifications: bool
+    webhook_url: Optional[str]
+    items_per_page: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class UserPreferenceUpdate(BaseModel):
     default_currency: Optional[str]
     notify_email: Optional[bool]

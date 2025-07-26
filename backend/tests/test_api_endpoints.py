@@ -885,6 +885,261 @@ class TestAlertAPI:
         assert "not found" in data["detail"].lower()
 
 
+class TestUserPreferencesAPI:
+    """TDD tests for User Preferences API endpoints."""
+
+    def test_create_user_preferences_success(self, client):
+        """Test creating user preferences successfully."""
+        # First create a user
+        user_data = {
+            "email": "preferences.user@example.com",
+            "name": "Preferences User",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        # Create preferences
+        preferences_data = {
+            "user_id": user_id,
+            "default_currency": "EUR",
+            "timezone": "Europe/London",
+            "email_notifications": True,
+            "webhook_url": "https://example.com/webhook",
+            "items_per_page": 50,
+        }
+
+        response = client.post("/api/preferences/", json=preferences_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["user_id"] == user_id
+        assert data["default_currency"] == "EUR"
+        assert data["timezone"] == "Europe/London"
+        assert data["email_notifications"] is True
+        assert data["webhook_url"] == "https://example.com/webhook"
+        assert data["items_per_page"] == 50
+        assert "id" in data
+        assert "created_at" in data
+
+    def test_create_preferences_duplicate_user(self, client):
+        """Test creating preferences for user that already has them fails."""
+        user_data = {
+            "email": "duplicate.user@example.com",
+            "name": "Duplicate User",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        preferences_data = {
+            "user_id": user_id,
+            "default_currency": "USD",
+            "timezone": "UTC",
+        }
+
+        # Create first preferences
+        response1 = client.post("/api/preferences/", json=preferences_data)
+        assert response1.status_code == 201
+
+        # Try to create second preferences for same user
+        response2 = client.post("/api/preferences/", json=preferences_data)
+        assert response2.status_code == 409
+        data = response2.json()
+        assert "already exists" in data["detail"].lower()
+
+    def test_get_user_preferences_by_user_id(self, client):
+        """Test retrieving user preferences by user ID."""
+        user_data = {
+            "email": "get.preferences@example.com",
+            "name": "Get Preferences",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        preferences_data = {
+            "user_id": user_id,
+            "default_currency": "CAD",
+            "timezone": "America/Toronto",
+            "email_notifications": False,
+        }
+        client.post("/api/preferences/", json=preferences_data)
+
+        # Get preferences by user ID
+        response = client.get(f"/api/preferences/user/{user_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["user_id"] == user_id
+        assert data["default_currency"] == "CAD"
+        assert data["timezone"] == "America/Toronto"
+        assert data["email_notifications"] is False
+
+    def test_get_preferences_by_id(self, client):
+        """Test retrieving preferences by ID."""
+        user_data = {
+            "email": "preferences.id@example.com",
+            "name": "Preferences ID",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        preferences_data = {
+            "user_id": user_id,
+            "default_currency": "GBP",
+            "timezone": "Europe/London",
+        }
+        create_response = client.post("/api/preferences/", json=preferences_data)
+        preferences_id = create_response.json()["id"]
+
+        # Get preferences by ID
+        response = client.get(f"/api/preferences/{preferences_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == preferences_id
+        assert data["default_currency"] == "GBP"
+        assert data["timezone"] == "Europe/London"
+
+    def test_update_user_preferences(self, client):
+        """Test updating user preferences."""
+        user_data = {
+            "email": "update.preferences@example.com",
+            "name": "Update Preferences",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        preferences_data = {
+            "user_id": user_id,
+            "default_currency": "USD",
+            "timezone": "UTC",
+            "email_notifications": True,
+            "items_per_page": 20,
+        }
+        create_response = client.post("/api/preferences/", json=preferences_data)
+        preferences_id = create_response.json()["id"]
+
+        # Update preferences
+        update_data = {
+            "default_currency": "JPY",
+            "timezone": "Asia/Tokyo",
+            "email_notifications": False,
+            "items_per_page": 100,
+        }
+        response = client.patch(f"/api/preferences/{preferences_id}", json=update_data)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == preferences_id
+        assert data["default_currency"] == "JPY"
+        assert data["timezone"] == "Asia/Tokyo"
+        assert data["email_notifications"] is False
+        assert data["items_per_page"] == 100
+
+    def test_delete_user_preferences(self, client):
+        """Test deleting user preferences."""
+        user_data = {
+            "email": "delete.preferences@example.com",
+            "name": "Delete Preferences",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        preferences_data = {
+            "user_id": user_id,
+            "default_currency": "AUD",
+            "timezone": "Australia/Sydney",
+        }
+        create_response = client.post("/api/preferences/", json=preferences_data)
+        preferences_id = create_response.json()["id"]
+
+        # Delete preferences
+        response = client.delete(f"/api/preferences/{preferences_id}")
+
+        assert response.status_code == 204
+
+        # Verify it's gone
+        get_response = client.get(f"/api/preferences/{preferences_id}")
+        assert get_response.status_code == 404
+
+    def test_get_preferences_not_found(self, client):
+        """Test getting non-existent preferences."""
+        response = client.get("/api/preferences/99999")
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["detail"].lower()
+
+    def test_create_preferences_invalid_user(self, client):
+        """Test creating preferences for non-existent user fails."""
+        preferences_data = {
+            "user_id": 99999,
+            "default_currency": "USD",
+            "timezone": "UTC",
+        }
+
+        response = client.post("/api/preferences/", json=preferences_data)
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "User not found" in data["detail"]
+
+    def test_create_preferences_invalid_items_per_page(self, client):
+        """Test creating preferences with invalid items_per_page fails."""
+        user_data = {
+            "email": "invalid.items@example.com",
+            "name": "Invalid Items",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        preferences_data = {
+            "user_id": user_id,
+            "default_currency": "USD",
+            "timezone": "UTC",
+            "items_per_page": 5,  # Too low (min 10)
+        }
+
+        response = client.post("/api/preferences/", json=preferences_data)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_get_all_preferences(self, client):
+        """Test retrieving all user preferences."""
+        # Create multiple users with preferences
+        for i in range(2):
+            user_data = {
+                "email": f"list{i}@example.com",
+                "name": f"List User {i}",
+                "role": "admin",
+            }
+            user_response = client.post("/api/users/", json=user_data)
+            user_id = user_response.json()["id"]
+
+            preferences_data = {
+                "user_id": user_id,
+                "default_currency": "USD" if i == 0 else "EUR",
+                "timezone": "UTC",
+            }
+            client.post("/api/preferences/", json=preferences_data)
+
+        # Get all preferences
+        response = client.get("/api/preferences/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 2
+
+
 class TestHealthAPI:
     """TDD tests for health and status endpoints."""
 
