@@ -3,10 +3,16 @@ uvicorn
 sqlmodel
 sqlalchemy[asyncio]
 asyncpg
-pydantic
+pydantic[email]
 alembic
 celery
 redis
 python-dotenv
 websockets
 httpx
+pytest
+pytest-asyncio
+httpx
+freezegun
+factory-boy
+email-validator
