@@ -48,23 +48,25 @@ class PriceRecordResponse(BaseModel):
 router = APIRouter()
 
 
-@router.post("/", response_model=PriceRecordResponse, status_code=status.HTTP_201_CREATED)
-def create_price_record(data: PriceRecordCreate, session: Session = Depends(get_session)):
+@router.post(
+    "/", response_model=PriceRecordResponse, status_code=status.HTTP_201_CREATED
+)
+def create_price_record(
+    data: PriceRecordCreate, session: Session = Depends(get_session)
+):
     """Create a new price record."""
     # Validate that product exists
     product = session.get(Product, data.product_id)
     if not product:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Product not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
         )
 
     # Validate that provider exists
     provider = session.get(Provider, data.provider_id)
     if not provider:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Provider not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found"
         )
 
     price_record = PriceRecord(

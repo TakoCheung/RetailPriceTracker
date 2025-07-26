@@ -210,6 +210,89 @@ class TestProviderAPI:
             "Rate limit must be greater than 0" in str(error) for error in errors
         )
 
+    def test_get_providers_list(self, client):
+        """Test retrieving list of providers."""
+        # First create a provider
+        provider_data = {
+            "name": "Amazon",
+            "base_url": "https://api.amazon.com",
+            "rate_limit": 1000,
+        }
+        client.post("/api/providers/", json=provider_data)
+
+        response = client.get("/api/providers/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["name"] == "Amazon"
+
+    def test_get_provider_by_id(self, client):
+        """Test retrieving a provider by ID."""
+        # First create a provider
+        provider_data = {
+            "name": "eBay",
+            "base_url": "https://api.ebay.com",
+            "rate_limit": 500,
+        }
+        create_response = client.post("/api/providers/", json=provider_data)
+        provider_id = create_response.json()["id"]
+
+        response = client.get(f"/api/providers/{provider_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "eBay"
+        assert data["rate_limit"] == 500
+
+    def test_get_provider_not_found(self, client):
+        """Test retrieving non-existent provider returns 404."""
+        response = client.get("/api/providers/999")
+        assert response.status_code == 404
+
+    def test_update_provider(self, client):
+        """Test updating a provider."""
+        # First create a provider
+        provider_data = {
+            "name": "Walmart",
+            "base_url": "https://api.walmart.com",
+            "rate_limit": 300,
+        }
+        create_response = client.post("/api/providers/", json=provider_data)
+        provider_id = create_response.json()["id"]
+
+        # Update the provider
+        update_data = {
+            "name": "Walmart Updated",
+            "rate_limit": 400,
+        }
+        response = client.patch(f"/api/providers/{provider_id}", json=update_data)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Walmart Updated"
+        assert data["rate_limit"] == 400
+
+    def test_delete_provider(self, client):
+        """Test deleting a provider."""
+        # First create a provider
+        provider_data = {
+            "name": "Target",
+            "base_url": "https://api.target.com",
+            "rate_limit": 200,
+        }
+        create_response = client.post("/api/providers/", json=provider_data)
+        provider_id = create_response.json()["id"]
+
+        # Delete the provider
+        response = client.delete(f"/api/providers/{provider_id}")
+        assert response.status_code == 204
+
+        # Verify it's deleted
+        get_response = client.get(f"/api/providers/{provider_id}")
+        assert get_response.status_code == 404
+
 
 class TestPriceRecordAPI:
     """TDD tests for Price Record API endpoints."""
