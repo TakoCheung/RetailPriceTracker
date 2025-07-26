@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import FastAPI
 
 from .database import init_db
-from .routes import alerts, preferences, products, providers
+from .routes import alerts, preferences, products, providers, price_records
 from .utils import websocket
 
 app = FastAPI(title="Retail Price Tracker", version="1.0.0")
@@ -22,6 +22,7 @@ async def health_check():
 
 app.include_router(products.router, prefix="/api/products", tags=["products"])
 app.include_router(providers.router, prefix="/api/providers", tags=["providers"])
+app.include_router(price_records.router, prefix="/api/price-records", tags=["price-records"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(preferences.router, prefix="/api/preferences", tags=["preferences"])
 
