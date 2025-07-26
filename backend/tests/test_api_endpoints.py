@@ -603,6 +603,288 @@ class TestUserAPI:
         assert "not found" in data["detail"].lower()
 
 
+class TestAlertAPI:
+    """TDD tests for Alert API endpoints."""
+
+    def test_create_alert_success(self, client, sample_products):
+        """Test creating a price alert successfully."""
+        # First create a user
+        user_data = {
+            "email": "alert.user@example.com",
+            "name": "Alert User",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        # Create the alert
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "price_drop",
+            "threshold_price": 899.99,
+            "notification_channels": ["email"],
+        }
+
+        response = client.post("/api/alerts/", json=alert_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["user_id"] == user_id
+        assert data["product_id"] == sample_products[0].id
+        assert data["alert_type"] == "price_drop"
+        assert data["threshold_price"] == 899.99
+        assert data["notification_channels"] == ["email"]
+        assert data["is_active"] is True
+        assert "id" in data
+        assert "created_at" in data
+
+    def test_create_alert_invalid_type(self, client, sample_products):
+        """Test creating alert with invalid alert type."""
+        user_data = {
+            "email": "test2@example.com",
+            "name": "Test User 2",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "invalid_type",
+            "threshold_price": 899.99,
+        }
+
+        response = client.post("/api/alerts/", json=alert_data)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_create_alert_missing_threshold_for_price_alert(
+        self, client, sample_products
+    ):
+        """Test creating price alert without threshold fails."""
+        user_data = {
+            "email": "threshold.test@example.com",
+            "name": "Threshold Test",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "price_drop",
+            # Missing threshold_price
+            "notification_channels": ["email"],
+        }
+
+        response = client.post("/api/alerts/", json=alert_data)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "threshold_price is required" in data["detail"]
+
+    def test_create_alert_invalid_notification_channel(self, client, sample_products):
+        """Test creating alert with invalid notification channel."""
+        user_data = {
+            "email": "channel.test@example.com",
+            "name": "Channel Test",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "back_in_stock",
+            "notification_channels": ["invalid_channel"],
+        }
+
+        response = client.post("/api/alerts/", json=alert_data)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "Invalid notification channel" in data["detail"]
+
+    def test_get_alerts_list(self, client, sample_products):
+        """Test retrieving list of alerts."""
+        # First create a user and alert
+        user_data = {
+            "email": "list.user@example.com",
+            "name": "List User",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "back_in_stock",
+            "notification_channels": ["email", "webhook"],
+        }
+        client.post("/api/alerts/", json=alert_data)
+
+        # Test getting alerts list
+        response = client.get("/api/alerts/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["alert_type"] == "back_in_stock"
+
+    def test_get_alerts_filtered_by_user(self, client, sample_products):
+        """Test retrieving alerts filtered by user ID."""
+        # Create two users
+        user1_data = {
+            "email": "filter1.user@example.com",
+            "name": "Filter User 1",
+            "role": "admin",
+        }
+        user1_response = client.post("/api/users/", json=user1_data)
+        user1_id = user1_response.json()["id"]
+
+        user2_data = {
+            "email": "filter2.user@example.com",
+            "name": "Filter User 2",
+            "role": "admin",
+        }
+        user2_response = client.post("/api/users/", json=user2_data)
+        user2_id = user2_response.json()["id"]
+
+        # Create alerts for both users
+        alert1_data = {
+            "user_id": user1_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "back_in_stock",
+            "notification_channels": ["email"],
+        }
+        client.post("/api/alerts/", json=alert1_data)
+
+        alert2_data = {
+            "user_id": user2_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "out_of_stock",
+            "notification_channels": ["email"],
+        }
+        client.post("/api/alerts/", json=alert2_data)
+
+        # Test filtering by user1
+        response = client.get(f"/api/alerts/?user_id={user1_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        for alert in data:
+            assert alert["user_id"] == user1_id
+
+    def test_get_alert_by_id(self, client, sample_products):
+        """Test retrieving a specific alert by ID."""
+        user_data = {
+            "email": "specific.user@example.com",
+            "name": "Specific User",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "price_increase",
+            "threshold_price": 1200.00,
+            "notification_channels": ["sms"],
+        }
+        create_response = client.post("/api/alerts/", json=alert_data)
+        alert_id = create_response.json()["id"]
+
+        # Test getting specific alert
+        response = client.get(f"/api/alerts/{alert_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == alert_id
+        assert data["alert_type"] == "price_increase"
+        assert data["threshold_price"] == 1200.00
+
+    def test_update_alert(self, client, sample_products):
+        """Test updating an existing alert."""
+        user_data = {
+            "email": "update.user@example.com",
+            "name": "Update User",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "price_drop",
+            "threshold_price": 800.00,
+            "notification_channels": ["email"],
+        }
+        create_response = client.post("/api/alerts/", json=alert_data)
+        alert_id = create_response.json()["id"]
+
+        # Update the alert
+        update_data = {
+            "threshold_price": 750.00,
+            "notification_channels": ["email", "webhook"],
+            "is_active": False,
+        }
+        response = client.patch(f"/api/alerts/{alert_id}", json=update_data)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == alert_id
+        assert data["threshold_price"] == 750.00
+        assert data["notification_channels"] == ["email", "webhook"]
+        assert data["is_active"] is False
+
+    def test_delete_alert(self, client, sample_products):
+        """Test deleting an alert."""
+        user_data = {
+            "email": "delete.user@example.com",
+            "name": "Delete User",
+            "role": "admin",
+        }
+        user_response = client.post("/api/users/", json=user_data)
+        user_id = user_response.json()["id"]
+
+        alert_data = {
+            "user_id": user_id,
+            "product_id": sample_products[0].id,
+            "alert_type": "out_of_stock",
+            "notification_channels": ["email"],
+        }
+        create_response = client.post("/api/alerts/", json=alert_data)
+        alert_id = create_response.json()["id"]
+
+        # Delete the alert
+        response = client.delete(f"/api/alerts/{alert_id}")
+
+        assert response.status_code == 204
+
+        # Verify it's gone
+        get_response = client.get(f"/api/alerts/{alert_id}")
+        assert get_response.status_code == 404
+
+    def test_get_alert_not_found(self, client):
+        """Test getting a non-existent alert."""
+        response = client.get("/api/alerts/99999")
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["detail"].lower()
+
+
 class TestHealthAPI:
     """TDD tests for health and status endpoints."""
 
