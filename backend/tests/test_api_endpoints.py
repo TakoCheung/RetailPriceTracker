@@ -478,6 +478,7 @@ class TestUserAPI:
         user_data = {
             "email": "john.doe@example.com",
             "name": "John Doe",
+            "password": "SecurePassword123!",
             "role": "admin",
         }
 
@@ -492,12 +493,14 @@ class TestUserAPI:
         assert "id" in data
         assert "created_at" in data
         assert "updated_at" in data
+        assert "password" not in data  # Password should not be returned
 
     def test_create_user_invalid_email(self, client):
         """Test creating a user with invalid email."""
         user_data = {
             "email": "invalid-email",
             "name": "John Doe",
+            "password": "SecurePassword123!",
             "role": "ADMIN",
         }
 
@@ -513,6 +516,7 @@ class TestUserAPI:
         user_data = {
             "email": "create.user@example.com",
             "name": "Create User",
+            "password": "CreatePassword123!",
             "role": "viewer",
         }
         client.post("/api/users/", json=user_data)
@@ -532,6 +536,7 @@ class TestUserAPI:
         user_data = {
             "email": "bob.smith@example.com",
             "name": "Bob Smith",
+            "password": "BobPassword123!",
             "role": "admin",
         }
         create_response = client.post("/api/users/", json=user_data)
@@ -553,6 +558,7 @@ class TestUserAPI:
         user_data = {
             "email": "alice.brown@example.com",
             "name": "Alice Brown",
+            "password": "AlicePassword123!",
             "role": "viewer",
         }
         create_response = client.post("/api/users/", json=user_data)
@@ -580,6 +586,7 @@ class TestUserAPI:
         user_data = {
             "email": "charlie.wilson@example.com",
             "name": "Charlie Wilson",
+            "password": "CharliePassword123!",
             "role": "admin",
         }
         create_response = client.post("/api/users/", json=user_data)
@@ -612,6 +619,7 @@ class TestAlertAPI:
         user_data = {
             "email": "alert.user@example.com",
             "name": "Alert User",
+            "password": "AlertPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -644,6 +652,7 @@ class TestAlertAPI:
         user_data = {
             "email": "test2@example.com",
             "name": "Test User 2",
+            "password": "TestPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)
@@ -669,6 +678,7 @@ class TestAlertAPI:
         user_data = {
             "email": "threshold.test@example.com",
             "name": "Threshold Test",
+            "password": "ThresholdPassword123!",
             "role": "admin",
         }
         user_response = client.post("/api/users/", json=user_data)

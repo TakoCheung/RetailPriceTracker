@@ -6,17 +6,27 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlmodel import Session, select
 
 from ..database import get_session
 from ..models import User, UserRole
 
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password for storage."""
+    return pwd_context.hash(password)
+
 
 # Request/Response schemas
 class UserCreate(BaseModel):
     email: EmailStr
     name: str
+    password: str
     role: UserRole = UserRole.VIEWER
 
     @field_validator("name")
@@ -27,6 +37,19 @@ class UserCreate(BaseModel):
         if len(v) > 100:
             raise ValueError("Name must be at most 100 characters long")
         return v.strip()
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -55,6 +78,9 @@ class UserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    class Config:
+        from_attributes = True
+
 
 router = APIRouter()
 
@@ -73,10 +99,14 @@ def create_user(data: UserCreate, session: Session = Depends(get_session)):
             detail=f"User with email {data.email} already exists",
         )
 
+    # Hash the password
+    password_hash = get_password_hash(data.password)
+
     # Create user
     db_user = User(
         email=data.email,
         name=data.name,
+        password_hash=password_hash,
         role=data.role,
         is_active=True,
         created_at=datetime.utcnow(),
