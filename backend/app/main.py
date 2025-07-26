@@ -3,7 +3,16 @@ from datetime import datetime
 from fastapi import FastAPI
 
 from .database import init_db
-from .routes import alerts, auth, preferences, price_records, products, providers, users
+from .routes import (
+    alerts,
+    analytics,
+    auth,
+    preferences,
+    price_records,
+    products,
+    providers,
+    users,
+)
 from .utils import websocket
 
 app = FastAPI(title="Retail Price Tracker", version="1.0.0")
@@ -28,6 +37,7 @@ app.include_router(
 )
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(preferences.router, prefix="/api/preferences", tags=["preferences"])
+app.include_router(analytics.router, prefix="/api", tags=["analytics"])
 app.include_router(auth.router)
 
 app.add_api_websocket_route("/ws", websocket.websocket_endpoint)
