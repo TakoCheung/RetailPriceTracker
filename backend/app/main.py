@@ -7,6 +7,7 @@ from .routes import (
     alerts,
     analytics,
     auth,
+    monitoring,
     preferences,
     price_records,
     products,
@@ -40,6 +41,7 @@ app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(preferences.router, prefix="/api/preferences", tags=["preferences"])
 app.include_router(analytics.router, prefix="/api", tags=["analytics"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
+app.include_router(monitoring.router, tags=["monitoring"])
 app.include_router(auth.router)
 
 app.add_api_websocket_route("/ws", websocket.websocket_endpoint)
