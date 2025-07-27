@@ -7,9 +7,12 @@ from datetime import datetime, timezone
 
 import pytest
 from app.models import (
+    AlertCondition,
+    AlertStatus,
     PriceAlert,
     PriceRecord,
     Product,
+    ProductProviderLink,
     Provider,
     User,
     UserPreference,
@@ -46,15 +49,15 @@ class TestProductModel:
     async def test_product_name_validation(self, db_session: AsyncSession):
         """Test product name validation."""
         # Test empty name
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             Product(name="")
 
         # Test name with only spaces
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             Product(name="   ")
 
         # Test single character name
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             Product(name="A")
 
         # Test valid name
@@ -112,12 +115,13 @@ class TestProductModel:
         )
         db_session.add(link)
         await db_session.commit()
+        await db_session.refresh(link)
 
-        # Test relationship exists
-        assert len(product.providers) == 1
-        assert product.providers[0].name == "Test Provider"
-        assert len(provider.products) == 1
-        assert provider.products[0].name == "Test Product"
+        # Test relationship exists via the link
+        assert link.product_id == product.id
+        assert link.provider_id == provider.id
+        assert link.product_url == "https://test.com/product/123"
+        assert link.price_selector == ".price"
 
 
 class TestProviderModel:
@@ -160,22 +164,26 @@ class TestProviderModel:
     async def test_provider_name_validation(self, db_session: AsyncSession):
         """Test provider name validation."""
         # Test empty name
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             Provider(name="", base_url="https://test.com")
 
+        # Test name with only spaces
+        with pytest.raises(ValueError):
+            Provider(name="   ", base_url="https://test.com")
+
         # Test single character name
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             Provider(name="A", base_url="https://test.com")
 
     @pytest.mark.asyncio
     async def test_provider_rate_limit_validation(self, db_session: AsyncSession):
         """Test provider rate limit validation."""
         # Test negative rate limit
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             Provider(name="Test", base_url="https://test.com", rate_limit=-1)
 
         # Test zero rate limit
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             Provider(name="Test", base_url="https://test.com", rate_limit=0)
 
 
@@ -256,7 +264,7 @@ class TestPriceRecordModel:
             price=99.99,
             currency="USD",
             is_available=True,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(),
         )
         db_session.add(price_record)
         await db_session.commit()

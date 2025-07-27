@@ -18,24 +18,32 @@ class SearchProductResult(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
     url: Optional[str] = None
-    current_price: Optional[float] = None
+    status: Optional[str] = "ACTIVE"
+    created_at: Optional[str] = None
+    current_price: Optional[Dict[str, Any]] = None
     currency: Optional[str] = None
     is_available: bool = False
-    provider_name: Optional[str] = None
+    providers: List[Dict[str, Any]] = []
     score: Optional[float] = Field(None, description="Search relevance score")
+    relevance_score: Optional[float] = Field(None, description="Search relevance score")
+    price_change: Optional[Dict[str, Any]] = None
 
 
 class SearchProductsResponse(BaseModel):
     """Response for product search endpoint."""
 
     results: List[SearchProductResult]
-    total_count: int
+    total: int
     page: int = 1
     per_page: int = 20
     total_pages: int
     search_time_ms: int
     query: Optional[str] = None
     filters_applied: Dict[str, Any] = {}
+    facets: Optional[Dict[str, Any]] = None
+    applied_filters: Optional[Dict[str, Any]] = None
+    performance: Optional[Dict[str, Any]] = None
+    spelling_suggestion: Optional[str] = None
 
 
 # Search suggestions schema

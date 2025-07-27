@@ -14,9 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
 
-# Test database URL - using a separate test database
+# Test database URL - using Docker service name for containerized tests
 TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/prices_test"
+    "TEST_DATABASE_URL", "postgresql+asyncpg://user:pass@db:5432/prices_test"
 )
 
 # Create test engine
@@ -29,7 +29,7 @@ TestAsyncSessionLocal = sessionmaker(
 )
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Provides a clean database session for each test.
@@ -39,8 +39,11 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with TestAsyncSessionLocal() as session:
-        yield session
-        await session.rollback()
+        try:
+            yield session
+        finally:
+            await session.rollback()
+            await session.close()
 
     async with test_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)

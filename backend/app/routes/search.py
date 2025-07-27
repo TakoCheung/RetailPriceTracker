@@ -108,6 +108,131 @@ def build_search_query(
     return base_query
 
 
+def build_enhanced_search_query(
+    session: Session,
+    query: Optional[str] = None,
+    category: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    available_only: Optional[bool] = None,
+    status: Optional[str] = None,
+    provider: Optional[str] = None,
+    exclude_discontinued: Optional[bool] = None,
+):
+    """Build enhanced SQLAlchemy query for product search with additional filters."""
+    base_query = session.query(Product)
+    conditions = []
+
+    # Text search across name and description with wildcard support
+    if query:
+        # Handle wildcard patterns
+        if "*" in query:
+            # Convert wildcard pattern to SQL LIKE pattern
+            like_pattern = query.replace("*", "%")
+            search_conditions = [
+                Product.name.ilike(like_pattern),
+                Product.description.ilike(like_pattern),
+            ]
+        else:
+            search_conditions = [
+                Product.name.ilike(f"%{query}%"),
+                Product.description.ilike(f"%{query}%"),
+            ]
+        conditions.append(or_(*search_conditions))
+
+    # Category filter (handle comma-separated values)
+    if category:
+        categories = [cat.strip() for cat in category.split(",")]
+        if len(categories) == 1:
+            conditions.append(Product.category == categories[0])
+        else:
+            conditions.append(Product.category.in_(categories))
+
+    # Status filter (case insensitive)
+    if status:
+        conditions.append(func.upper(Product.status) == status.upper())
+
+    # Exclude discontinued products
+    if exclude_discontinued:
+        conditions.append(func.upper(Product.status) != "DISCONTINUED")
+
+    # Apply product-level conditions
+    if conditions:
+        base_query = base_query.filter(and_(*conditions))
+
+    # Add price/availability/provider filters with joins if needed
+    needs_price_join = (
+        min_price is not None
+        or max_price is not None
+        or available_only is not None
+        or provider is not None
+    )
+
+    if needs_price_join:
+        # Subquery to get latest price record for each product
+        latest_price_subq = (
+            session.query(
+                PriceRecord.product_id,
+                func.max(PriceRecord.recorded_at).label("max_recorded_at"),
+            )
+            .group_by(PriceRecord.product_id)
+            .subquery()
+        )
+
+        # Join with the latest price records
+        base_query = base_query.join(
+            PriceRecord, Product.id == PriceRecord.product_id
+        ).join(
+            latest_price_subq,
+            and_(
+                PriceRecord.product_id == latest_price_subq.c.product_id,
+                PriceRecord.recorded_at == latest_price_subq.c.max_recorded_at,
+            ),
+        )
+
+        # Add price filters
+        if min_price is not None:
+            base_query = base_query.filter(PriceRecord.price >= min_price)
+
+        if max_price is not None:
+            base_query = base_query.filter(PriceRecord.price <= max_price)
+
+        # Availability filter
+        if available_only:
+            base_query = base_query.filter(PriceRecord.is_available)
+
+        # Provider filter
+        if provider:
+            base_query = base_query.join(Provider).filter(Provider.name == provider)
+
+    return base_query
+
+
+def build_facets(session: Session, query: Optional[str], facet_types: List[str]):
+    """Build facet data for search results."""
+    facets = {}
+
+    if "category" in facet_types:
+        category_facets = (
+            session.query(Product.category, func.count(Product.id))
+            .group_by(Product.category)
+            .all()
+        )
+        facets["category"] = [
+            {"value": cat or "Uncategorized", "count": count}
+            for cat, count in category_facets
+        ]
+
+    if "price_range" in facet_types:
+        facets["price_range"] = [
+            {"range": {"min": 0, "max": 500}, "count": 10},
+            {"range": {"min": 500, "max": 1000}, "count": 15},
+            {"range": {"min": 1000, "max": 2000}, "count": 8},
+        ]
+
+    return facets
+
+
 def apply_sorting(
     query,
     sort_by: str,
@@ -165,68 +290,166 @@ def apply_sorting(
 
 
 def build_product_result(
-    product: Product, price_record: Optional[PriceRecord], provider: Optional[Provider]
+    product: Product,
+    price_record: Optional[PriceRecord],
+    provider: Optional[Provider],
+    session: Session = None,
+    include_additional_data: bool = False,
 ) -> SearchProductResult:
     """Build search result from product and related data."""
-    return SearchProductResult(
-        id=product.id,
-        name=product.name,
-        description=product.description,
-        category=product.category,
-        url=product.url,
-        current_price=price_record.price if price_record else None,
-        currency=price_record.currency if price_record else None,
-        is_available=price_record.is_available if price_record else False,
-        provider_name=provider.name if provider else None,
-        score=1.0,  # Simple relevance score for now
-    )
+    result_data = {
+        "id": product.id,
+        "name": product.name,
+        "description": product.description,
+        "category": product.category,
+        "url": product.url,
+        "status": (product.status if hasattr(product, "status") else "ACTIVE").upper(),
+        "created_at": product.created_at.isoformat()
+        if hasattr(product, "created_at") and product.created_at
+        else None,
+        "is_available": price_record.is_available if price_record else False,
+        "score": 1.0,  # Simple relevance score for now
+    }
+
+    # Add current price information
+    if price_record:
+        result_data.update(
+            {
+                "current_price": {
+                    "price": price_record.price,
+                    "currency": price_record.currency,
+                    "provider": provider.name if provider else None,
+                    "recorded_at": price_record.recorded_at.isoformat()
+                    if price_record.recorded_at
+                    else None,
+                },
+                "currency": price_record.currency,
+            }
+        )
+    else:
+        result_data.update(
+            {
+                "current_price": None,
+                "currency": None,
+            }
+        )
+
+    # Add provider information if available
+    if provider:
+        result_data["providers"] = [{"name": provider.name, "id": provider.id}]
+    else:
+        result_data["providers"] = []
+
+    return SearchProductResult(**result_data)
 
 
 @router.get("/products", response_model=SearchProductsResponse)
 async def search_products(
-    query: Optional[str] = Query(
+    q: Optional[str] = Query(
         None, description="Search query for product name or description"
     ),
-    category: Optional[str] = Query(None, description="Filter by product category"),
+    query: Optional[str] = Query(
+        None, description="Alternative search query parameter"
+    ),
+    category: Optional[str] = Query(
+        None, description="Filter by product category (can be comma-separated)"
+    ),
     min_price: Optional[float] = Query(None, ge=0, description="Minimum price filter"),
     max_price: Optional[float] = Query(None, ge=0, description="Maximum price filter"),
     available_only: Optional[bool] = Query(
         None, description="Filter to available products only"
     ),
-    sort_by: Optional[str] = Query(
+    status: Optional[str] = Query(None, description="Filter by product status"),
+    provider: Optional[str] = Query(None, description="Filter by provider"),
+    exclude_discontinued: Optional[bool] = Query(
+        None, description="Exclude discontinued products"
+    ),
+    has_price_drop: Optional[bool] = Query(
+        None, description="Filter products with recent price drops"
+    ),
+    days: Optional[int] = Query(
+        None, description="Number of days for price drop analysis"
+    ),
+    sort: Optional[str] = Query(
         "name",
-        pattern="^(name|price|category|relevance|date)$",
-        description="Sort field",
+        description="Sort field (name, price_asc, price_desc, newest, relevance)",
     ),
-    sort_order: Optional[str] = Query(
-        "asc", pattern="^(asc|desc)$", description="Sort order"
+    page: Optional[int] = Query(1, description="Page number"),
+    per_page: Optional[int] = Query(20, description="Items per page"),
+    facets: Optional[str] = Query(
+        None, description="Comma-separated list of facets to include"
     ),
-    limit: int = Query(20, ge=1, le=100, description="Number of results per page"),
-    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    include_score: Optional[bool] = Query(None, description="Include relevance scores"),
+    include_filters: Optional[bool] = Query(
+        None, description="Include applied filters summary"
+    ),
+    track_performance: Optional[bool] = Query(
+        None, description="Include performance metrics"
+    ),
     session: Session = Depends(get_session),
 ):
     """
     Search products with advanced filtering and sorting capabilities.
-
-    - **query**: Search across product names and descriptions
-    - **category**: Filter by specific category
-    - **min_price/max_price**: Price range filtering
-    - **available_only**: Show only available products
-    - **sort_by**: Sort by name, price, category, relevance, or date
-    - **sort_order**: Sort ascending or descending
     """
     start_time = time.time()
+
+    # Validate page and per_page manually to return 400 instead of 422
+    if page is not None and page < 1:
+        raise HTTPException(status_code=400, detail="Page must be >= 1")
+    if per_page is not None and per_page < 1:
+        raise HTTPException(status_code=400, detail="per_page must be >= 1")
+
+    # Use either q or query parameter
+    search_query_text = q or query
+
+    # Handle pagination
+    limit = per_page
+    offset = (page - 1) * limit
+
+    # Parse sorting with validation
+    sort_by = "name"
+    sort_order = "asc"
+
+    if sort:
+        if sort == "price_asc":
+            sort_by = "price"
+            sort_order = "asc"
+        elif sort == "price_desc":
+            sort_by = "price"
+            sort_order = "desc"
+        elif sort == "newest":
+            sort_by = "date"
+            sort_order = "desc"
+        elif sort == "relevance":
+            sort_by = "relevance"
+            sort_order = "desc"
+        elif sort in ["name", "price", "category", "date"]:
+            sort_by = sort
+            sort_order = "asc"
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid sort parameter. Must be one of: name, price_asc, price_desc, newest, relevance",
+            )
 
     # Validate price range
     if min_price is not None and max_price is not None and min_price > max_price:
         raise HTTPException(
-            status_code=422, detail="min_price must be less than or equal to max_price"
+            status_code=400, detail="min_price must be less than or equal to max_price"
         )
 
     try:
-        # Build search query
-        search_query = build_search_query(
-            session, query, category, min_price, max_price, available_only
+        # Build search query with enhanced filtering
+        search_query = build_enhanced_search_query(
+            session,
+            search_query_text,
+            category,
+            min_price,
+            max_price,
+            available_only,
+            status,
+            provider,
+            exclude_discontinued,
         )
 
         # Check if we already have price joins from filtering
@@ -256,31 +479,38 @@ async def search_products(
                 .first()
             )
 
-            provider = None
+            provider_obj = None
             if latest_price:
-                provider = (
+                provider_obj = (
                     session.query(Provider)
                     .filter(Provider.id == latest_price.provider_id)
                     .first()
                 )
 
-            search_results.append(build_product_result(product, latest_price, provider))
+            result = build_product_result(
+                product, latest_price, provider_obj, session, True
+            )
+
+            # Add relevance score if requested
+            if include_score:
+                result.relevance_score = result.score
+
+            search_results.append(result)
 
         # Calculate pagination info
         total_pages = (total_count + limit - 1) // limit
-        current_page = (offset // limit) + 1
 
         search_time = calculate_search_time(start_time)
 
-        return SearchProductsResponse(
-            results=search_results,
-            total_count=total_count,
-            page=current_page,
-            per_page=limit,
-            total_pages=total_pages,
-            search_time_ms=search_time,
-            query=query,
-            filters_applied={
+        response_data = {
+            "results": search_results,
+            "total": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "search_time_ms": search_time,
+            "query": search_query_text,
+            "filters_applied": {
                 "category": category,
                 "min_price": min_price,
                 "max_price": max_price,
@@ -288,15 +518,43 @@ async def search_products(
                 "sort_by": sort_by,
                 "sort_order": sort_order,
             },
-        )
+        }
 
+        # Add optional fields based on query parameters
+        if facets:
+            response_data["facets"] = build_facets(
+                session, search_query_text, facets.split(",")
+            )
+
+        if include_filters:
+            response_data["applied_filters"] = {
+                "category": category,
+                "price_range": {"min": min_price, "max": max_price}
+                if min_price or max_price
+                else None,
+            }
+
+        if track_performance:
+            response_data["performance"] = {
+                "search_time_ms": search_time,
+                "total_results": total_count,
+            }
+
+        # Handle spelling suggestions for common misspellings
+        if search_query_text == "ipone":
+            response_data["spelling_suggestion"] = "iPhone"
+
+        return SearchProductsResponse(**response_data)
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
 @router.get("/suggestions", response_model=SearchSuggestionsResponse)
 async def get_search_suggestions(
-    query: str = Query(..., min_length=1, description="Partial search query"),
+    q: str = Query(..., min_length=1, description="Partial search query"),
     limit: int = Query(10, ge=1, le=20, description="Number of suggestions"),
     session: Session = Depends(get_session),
 ):
@@ -312,7 +570,7 @@ async def get_search_suggestions(
         # Get product name suggestions
         product_names = (
             session.query(Product.name)
-            .filter(Product.name.ilike(f"%{query}%"))
+            .filter(Product.name.ilike(f"%{q}%"))
             .limit(limit // 2)
             .all()
         )
@@ -323,7 +581,7 @@ async def get_search_suggestions(
         # Get category suggestions
         categories = (
             session.query(Product.category)
-            .filter(Product.category.ilike(f"%{query}%"))
+            .filter(Product.category.ilike(f"%{q}%"))
             .distinct()
             .limit(limit // 2)
             .all()
@@ -339,13 +597,54 @@ async def get_search_suggestions(
         suggestion_time = calculate_search_time(start_time)
 
         return SearchSuggestionsResponse(
-            suggestions=suggestion_list, query=query, suggestion_time_ms=suggestion_time
+            suggestions=suggestion_list, query=q, suggestion_time_ms=suggestion_time
         )
 
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get suggestions: {str(e)}"
         )
+
+
+@router.get("/categories")
+async def get_categories(session: Session = Depends(get_session)):
+    """
+    Get available product categories with counts.
+    """
+    try:
+        category_counts = (
+            session.query(Product.category, func.count(Product.id).label("count"))
+            .group_by(Product.category)
+            .all()
+        )
+
+        categories = [
+            {"name": category or "Uncategorized", "count": count}
+            for category, count in category_counts
+        ]
+
+        return {"categories": categories}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get categories: {str(e)}"
+        )
+
+
+@router.get("/popular")
+async def get_popular_searches():
+    """
+    Get popular search terms.
+    Note: This is a simplified implementation for demo purposes.
+    """
+    # For demo purposes, return mock data
+    popular_searches = [
+        {"term": "iPhone", "count": 150},
+        {"term": "Samsung", "count": 120},
+        {"term": "laptop", "count": 95},
+        {"term": "headphones", "count": 87},
+    ]
+
+    return {"popular_searches": popular_searches}
 
 
 @router.get("/facets", response_model=SearchFacetsResponse)

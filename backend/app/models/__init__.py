@@ -2,11 +2,11 @@
 Simplified domain models for initial TDD testing.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from typing import List, Optional
 
-from pydantic import EmailStr, field_validator
+from pydantic import EmailStr, ValidationError, field_validator, model_validator
 from sqlalchemy import JSON
 from sqlmodel import Column, Field, Relationship, SQLModel
 
@@ -27,6 +27,22 @@ class AlertType(str, PyEnum):
     OUT_OF_STOCK = "out_of_stock"
 
 
+class AlertCondition(str, PyEnum):
+    """Alert condition types."""
+
+    BELOW = "below"
+    ABOVE = "above"
+    EQUAL = "equal"
+
+
+class AlertStatus(str, PyEnum):
+    """Alert status types."""
+
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    TRIGGERED = "triggered"
+
+
 class NotificationChannel(str, PyEnum):
     """Notification delivery channels."""
 
@@ -43,24 +59,48 @@ class ProductStatus(str, PyEnum):
     DISCONTINUED = "discontinued"
 
 
+class ProductProviderLink(SQLModel, table=True):
+    """Many-to-many relationship between products and providers."""
+
+    __tablename__ = "product_provider_links"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: int = Field(foreign_key="products.id", index=True)
+    provider_id: int = Field(foreign_key="providers.id", index=True)
+    product_url: str = Field(max_length=2048)
+    price_selector: Optional[str] = Field(default=None, max_length=200)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    # Relationships
+    product: "Product" = Relationship(back_populates="provider_links")
+    provider: "Provider" = Relationship(back_populates="product_links")
+
+
 class Product(SQLModel, table=True):
     """Product model with basic validation."""
 
     __tablename__ = "products"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(min_length=2, max_length=200)
+    name: str = Field(max_length=200)
     url: Optional[str] = Field(default=None, max_length=2048)
+    sku: Optional[str] = Field(default=None, max_length=100, unique=True)
     description: Optional[str] = Field(default=None, max_length=1000)
     category: Optional[str] = Field(default=None, max_length=100)
+    brand: Optional[str] = Field(default=None, max_length=100)
     image_url: Optional[str] = Field(default=None, max_length=2048)
     status: ProductStatus = Field(default=ProductStatus.ACTIVE)
+    is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     # Relationships
     price_records: List["PriceRecord"] = Relationship(back_populates="product")
     alerts: List["PriceAlert"] = Relationship(back_populates="product")
+    provider_links: List["ProductProviderLink"] = Relationship(back_populates="product")
 
     @field_validator("name")
     @classmethod
@@ -68,6 +108,13 @@ class Product(SQLModel, table=True):
         if not v or len(v.strip()) < 2:
             raise ValueError("Product name must be at least 2 characters long")
         return v.strip()
+
+    def __init__(self, **data):
+        if "name" in data:
+            name = data["name"]
+            if not name or len(name.strip()) < 2:
+                raise ValueError("Product name must be at least 2 characters long")
+        super().__init__(**data)
 
     def is_valid_name(self) -> bool:
         """Check if the product name is valid."""
@@ -90,6 +137,7 @@ class Provider(SQLModel, table=True):
 
     # Relationships
     price_records: List["PriceRecord"] = Relationship(back_populates="provider")
+    product_links: List["ProductProviderLink"] = Relationship(back_populates="provider")
 
     @field_validator("name")
     @classmethod
@@ -105,6 +153,21 @@ class Provider(SQLModel, table=True):
             raise ValueError("Rate limit must be greater than or equal to 1")
         return v
 
+    def __init__(self, **data):
+        # Validate name
+        if "name" in data:
+            name = data["name"]
+            if not name or len(name.strip()) < 2:
+                raise ValueError("Provider name must be at least 2 characters long")
+
+        # Validate rate_limit
+        if "rate_limit" in data:
+            rate_limit = data["rate_limit"]
+            if rate_limit < 1:
+                raise ValueError("Rate limit must be greater than or equal to 1")
+
+        super().__init__(**data)
+
     def is_valid_rate_limit(self) -> bool:
         """Check if the provider rate limit is valid."""
         return self.rate_limit >= 1
@@ -118,7 +181,8 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: EmailStr = Field(unique=True, index=True)
     name: str = Field(min_length=2, max_length=100)
-    password_hash: str = Field(max_length=255)
+    password_hash: Optional[str] = Field(default=None, max_length=255)
+    github_id: Optional[str] = Field(default=None, max_length=50, unique=True)
     role: UserRole = Field(default=UserRole.VIEWER)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -140,6 +204,7 @@ class PriceRecord(SQLModel, table=True):
     price: float = Field(gt=0)
     currency: str = Field(default="USD", max_length=3)
     is_available: bool = Field(default=True)
+    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
     recorded_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
     # Relationships
@@ -155,10 +220,13 @@ class PriceAlert(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", index=True)
     product_id: int = Field(foreign_key="products.id", index=True)
-    alert_type: AlertType
+    alert_type: AlertType = Field(default=AlertType.PRICE_DROP)
     threshold_price: Optional[float] = Field(default=None, gt=0)
+    condition: AlertCondition = Field(default=AlertCondition.BELOW)
     notification_channels: List[str] = Field(default=["email"], sa_column=Column(JSON))
+    status: AlertStatus = Field(default=AlertStatus.ACTIVE)
     is_active: bool = Field(default=True)
+    cooldown_minutes: int = Field(default=60, ge=1)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
