@@ -12,6 +12,11 @@ from sqlalchemy import JSON
 from sqlmodel import Column, Field, Relationship, SQLModel
 
 
+def utc_now():
+    """Return timezone-naive UTC datetime for database storage."""
+    return datetime.utcnow()
+
+
 class UserRole(str, PyEnum):
     """User roles for role-based access control."""
 
@@ -71,8 +76,8 @@ class ProductProviderLink(SQLModel, table=True):
     product_url: str = Field(max_length=2048)
     price_selector: Optional[str] = Field(default=None, max_length=200)
     is_active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
     # Relationships
     product: "Product" = Relationship(back_populates="provider_links")
@@ -94,8 +99,8 @@ class Product(SQLModel, table=True):
     image_url: Optional[str] = Field(default=None, max_length=2048)
     status: ProductStatus = Field(default=ProductStatus.ACTIVE)
     is_active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     deleted_at: Optional[datetime] = Field(default=None)
 
     # Relationships
@@ -107,7 +112,7 @@ class Product(SQLModel, table=True):
     @classmethod
     def validate_name(cls, v):
         if not v or len(v.strip()) < 2:
-            raise ValueError("Product name must be at least 2 characters long")
+            raise ValidationError("Product name must be at least 2 characters long")
         return v.strip()
 
     def __init__(self, **data):
@@ -136,8 +141,8 @@ class Provider(SQLModel, table=True):
     rate_limit: int = Field(default=100, ge=1, le=10000)
     is_active: bool = Field(default=True)
     health_status: str = Field(default="unknown", max_length=20)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
     # Relationships
     price_records: List["PriceRecord"] = Relationship(back_populates="provider")
@@ -147,14 +152,14 @@ class Provider(SQLModel, table=True):
     @classmethod
     def validate_name(cls, v):
         if not v or len(v.strip()) < 2:
-            raise ValueError("Provider name must be at least 2 characters long")
+            raise ValidationError("Provider name must be at least 2 characters long")
         return v.strip()
 
     @field_validator("rate_limit")
     @classmethod
     def validate_rate_limit(cls, v):
         if v < 1:
-            raise ValueError("Rate limit must be greater than or equal to 1")
+            raise ValidationError("Rate limit must be greater than or equal to 1")
         return v
 
     def __init__(self, **data):
@@ -189,8 +194,8 @@ class User(SQLModel, table=True):
     github_id: Optional[str] = Field(default=None, max_length=50, unique=True)
     role: UserRole = Field(default=UserRole.VIEWER)
     is_active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
     # Relationships
     alerts: List["PriceAlert"] = Relationship(back_populates="user")
@@ -208,21 +213,44 @@ class PriceRecord(SQLModel, table=True):
     price: float = Field(gt=0)
     currency: str = Field(default="USD", max_length=3)
     is_available: bool = Field(default=True)
-    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
-    recorded_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    timestamp: datetime = Field(default_factory=utc_now, index=True)
+    recorded_at: datetime = Field(default_factory=utc_now, index=True)
 
     # Relationships
     product: Product = Relationship(back_populates="price_records")
     provider: Provider = Relationship(back_populates="price_records")
 
-    def __init__(self, **data):
-        # Validate price
-        if "price" in data:
-            price = data["price"]
-            if price <= 0:
-                raise ValueError("Price must be greater than 0")
+    @field_validator("price")
+    @classmethod
+    def validate_price(cls, v):
+        if v <= 0:
+            raise ValueError("Price must be greater than 0")
+        return v
 
-        # Validate currency
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, v):
+        if len(v) != 3 or not v.isupper():
+            raise ValueError("Currency must be 3 uppercase letters")
+        return v
+
+    def __init__(self, **data):
+        # Manual validation to raise ValidationError as expected by tests
+        if "price" in data and data["price"] <= 0:
+            from pydantic import ValidationError
+            from pydantic_core import ErrorDetails
+
+            error_details: ErrorDetails = {
+                "type": "greater_than",
+                "loc": ("price",),
+                "msg": "Input should be greater than 0",
+                "input": data["price"],
+                "ctx": {"gt": 0},
+            }
+            raise ValidationError.from_exception_data(
+                "ValidationError", [error_details]
+            )
+
         if "currency" in data:
             currency = data["currency"]
             if len(currency) != 3 or not currency.isupper():
@@ -246,14 +274,34 @@ class PriceAlert(SQLModel, table=True):
     status: AlertStatus = Field(default=AlertStatus.ACTIVE)
     is_active: bool = Field(default=True)
     cooldown_minutes: int = Field(default=60, ge=1)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
     # Relationships
     user: User = Relationship(back_populates="alerts")
     product: Product = Relationship(back_populates="alerts")
 
     def __init__(self, **data):
+        # Manual validation to raise ValidationError as expected by tests
+        if (
+            "threshold_price" in data
+            and data["threshold_price"] is not None
+            and data["threshold_price"] <= 0
+        ):
+            from pydantic import ValidationError
+            from pydantic_core import ErrorDetails
+
+            error_details: ErrorDetails = {
+                "type": "greater_than",
+                "loc": ("threshold_price",),
+                "msg": "Input should be greater than 0",
+                "input": data["threshold_price"],
+                "ctx": {"gt": 0},
+            }
+            raise ValidationError.from_exception_data(
+                "ValidationError", [error_details]
+            )
+
         # Validate notification_channels
         if "notification_channels" in data:
             channels = data["notification_channels"]
@@ -280,8 +328,8 @@ class UserPreference(SQLModel, table=True):
     items_per_page: int = Field(default=20, ge=10, le=100)
     chart_type: str = Field(default="line", max_length=50)
     default_time_range: str = Field(default="7d", max_length=10)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
     # Relationships
     user: User = Relationship(back_populates="preferences")
