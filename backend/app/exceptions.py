@@ -136,3 +136,73 @@ class ConfigurationError(BaseAPIException):
             error_code="CONFIGURATION_ERROR",
             details=details,
         )
+
+
+# Data Ingestion & Processing Exceptions
+class ScrapingError(BaseAPIException):
+    """Exception raised when web scraping operations fail."""
+
+    def __init__(self, message: str, url: Optional[str] = None):
+        self.url = url
+        details = {"url": url} if url else {}
+        super().__init__(
+            message=message,
+            status_code=502,
+            error_code="SCRAPING_ERROR",
+            details=details,
+        )
+
+
+class ParsingError(BaseAPIException):
+    """Exception raised when data parsing fails."""
+
+    def __init__(self, message: str, data_type: str):
+        self.data_type = data_type
+        details = {"data_type": data_type}
+        super().__init__(
+            message=message,
+            status_code=422,
+            error_code="PARSING_ERROR",
+            details=details,
+        )
+
+
+class ETLError(BaseAPIException):
+    """Exception raised when ETL pipeline operations fail."""
+
+    def __init__(self, message: str, stage: str):
+        self.stage = stage
+        details = {"stage": stage}
+        super().__init__(
+            message=message,
+            status_code=500,
+            error_code="ETL_ERROR",
+            details=details,
+        )
+
+
+class DataQualityError(BaseAPIException):
+    """Exception raised when data quality validation fails."""
+
+    def __init__(self, message: str, quality_issues: Dict[str, Any]):
+        self.quality_issues = quality_issues
+        super().__init__(
+            message=message,
+            status_code=422,
+            error_code="DATA_QUALITY_ERROR",
+            details={"quality_issues": quality_issues},
+        )
+
+
+class ProviderError(BaseAPIException):
+    """Exception raised when provider-specific operations fail."""
+
+    def __init__(self, message: str, provider_name: str):
+        self.provider_name = provider_name
+        details = {"provider_name": provider_name}
+        super().__init__(
+            message=message,
+            status_code=502,
+            error_code="PROVIDER_ERROR",
+            details=details,
+        )
