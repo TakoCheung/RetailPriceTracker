@@ -61,11 +61,7 @@ class CacheService:
             return None
 
     async def set(
-        self,
-        key: str,
-        value: Any,
-        ttl_seconds: int = 3600,
-        **kwargs
+        self, key: str, value: Any, ttl_seconds: int = 3600, **kwargs
     ) -> bool:
         """Set a value in cache with TTL."""
         if not self._connected or not self.redis_client:
@@ -104,11 +100,7 @@ class CacheService:
             return False
 
     async def get_or_set(
-        self,
-        key: str,
-        callback,
-        ttl_seconds: int = 3600,
-        **kwargs
+        self, key: str, callback, ttl_seconds: int = 3600, **kwargs
     ) -> Any:
         """Get from cache or execute callback and cache the result."""
         # Try to get from cache first
@@ -119,7 +111,9 @@ class CacheService:
         # Execute callback and cache result
         try:
             if callable(callback):
-                result = await callback() if hasattr(callback, '__await__') else callback()
+                result = (
+                    await callback() if hasattr(callback, "__await__") else callback()
+                )
             else:
                 result = callback
 
@@ -147,7 +141,9 @@ class CacheService:
 
     # High-level caching methods for specific data types
 
-    async def cache_product(self, product_id: int, product_data: dict, ttl_seconds: int = 1800):
+    async def cache_product(
+        self, product_id: int, product_data: dict, ttl_seconds: int = 1800
+    ):
         """Cache product data with 30-minute TTL."""
         key = self._generate_key("product", str(product_id))
         return await self.set(key, product_data, ttl_seconds)
@@ -162,17 +158,23 @@ class CacheService:
         key = self._generate_key("product", str(product_id))
         return await self.delete(key)
 
-    async def cache_price_trends(self, product_id: int, days: int, trends_data: dict, ttl_seconds: int = 600):
+    async def cache_price_trends(
+        self, product_id: int, days: int, trends_data: dict, ttl_seconds: int = 600
+    ):
         """Cache price trends with 10-minute TTL."""
         key = self._generate_key("price_trends", f"{product_id}:{days}")
         return await self.set(key, trends_data, ttl_seconds)
 
-    async def get_cached_price_trends(self, product_id: int, days: int) -> Optional[dict]:
+    async def get_cached_price_trends(
+        self, product_id: int, days: int
+    ) -> Optional[dict]:
         """Get cached price trends."""
         key = self._generate_key("price_trends", f"{product_id}:{days}")
         return await self.get(key)
 
-    async def cache_search_results(self, query_hash: str, results: dict, ttl_seconds: int = 300):
+    async def cache_search_results(
+        self, query_hash: str, results: dict, ttl_seconds: int = 300
+    ):
         """Cache search results with 5-minute TTL."""
         key = self._generate_key("search", query_hash)
         return await self.set(key, results, ttl_seconds)
@@ -185,15 +187,17 @@ class CacheService:
     async def get_cache_stats(self) -> dict:
         """Get cache statistics."""
         try:
-            if hasattr(self.redis, 'info'):
+            if hasattr(self.redis, "info"):
                 # Redis client
                 info = await self.redis.info()
                 return {
                     "hit_rate": 95.5,  # Mock value
-                    "miss_rate": 4.5,   # Mock value
-                    "total_keys": info.get("db0:keys", 0) if "db0:keys" in str(info) else 0,
+                    "miss_rate": 4.5,  # Mock value
+                    "total_keys": info.get("db0:keys", 0)
+                    if "db0:keys" in str(info)
+                    else 0,
                     "used_memory": info.get("used_memory", 0),
-                    "connected": True
+                    "connected": True,
                 }
             else:
                 # Mock Redis client
@@ -202,7 +206,7 @@ class CacheService:
                     "miss_rate": 4.5,
                     "total_keys": len(self.redis.data),
                     "used_memory": 1024000,  # 1MB mock
-                    "connected": True
+                    "connected": True,
                 }
         except Exception:
             return {
@@ -210,13 +214,13 @@ class CacheService:
                 "miss_rate": 0,
                 "total_keys": 0,
                 "used_memory": 0,
-                "connected": False
+                "connected": False,
             }
-    
+
     async def clear_all(self):
         """Clear all cached data."""
         try:
-            if hasattr(self.redis, 'flushall'):
+            if hasattr(self.redis, "flushall"):
                 await self.redis.flushall()
             else:
                 # Mock Redis client
@@ -232,7 +236,7 @@ class CacheService:
         return {
             "cache_entries_created": 0,
             "status": "completed",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
 
@@ -243,30 +247,30 @@ cache_service = CacheService()
 # Redis client for backwards compatibility (mocked in tests)
 class MockRedisClient:
     """Mock Redis client for testing."""
-    
+
     def __init__(self):
         self._storage = {}
-    
+
     def get(self, key: str):
         return self._storage.get(key)
-    
+
     def set(self, key: str, value: str, ex: int = None):
         self._storage[key] = value
         return True
-    
+
     def delete(self, key: str):
         return self._storage.pop(key, None) is not None
-    
+
     def exists(self, key: str):
         return key in self._storage
-    
+
     def expire(self, key: str, seconds: int):
         return True
-    
+
     def flushdb(self):
         self._storage.clear()
         return True
-    
+
     def pipeline(self):
         return self
 

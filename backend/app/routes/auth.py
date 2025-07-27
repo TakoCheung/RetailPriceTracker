@@ -62,6 +62,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """Create a JWT refresh token with longer expiration."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(days=7)  # Refresh tokens last 7 days
+    to_encode.update({"exp": expire, "type": "refresh"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verify JWT token and return user email."""
     token = credentials.credentials
@@ -233,3 +245,124 @@ def logout_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     blacklisted_tokens.add(token)
 
     return {"message": "Successfully logged out"}
+
+
+@router.post("/change-password", response_model=AuthMessage)
+def change_password(
+    current_password: str,
+    new_password: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Change user password."""
+    # Verify current password
+    if not current_user.password_hash or not verify_password(
+        current_password, current_user.password_hash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    # Validate new password
+    validate_password(new_password)
+
+    # Update password
+    current_user.password_hash = get_password_hash(new_password)
+    current_user.updated_at = datetime.utcnow()
+    session.add(current_user)
+    session.commit()
+
+    return {"message": "Password changed successfully"}
+
+
+@router.get("/github/login")
+def github_login():
+    """Initiate GitHub OAuth login."""
+    try:
+        from app.services.github_oauth import GitHubOAuthService
+
+        oauth_service = GitHubOAuthService()
+        authorization_url = oauth_service.get_authorization_url()
+
+        return {"authorization_url": authorization_url}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"GitHub OAuth initialization failed: {str(e)}",
+        )
+
+
+@router.get("/github/callback")
+def github_callback(code: str, session: Session = Depends(get_session)):
+    """Handle GitHub OAuth callback."""
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authorization code is required",
+        )
+
+    try:
+        from app.services.github_oauth import GitHubOAuthService
+
+        oauth_service = GitHubOAuthService()
+
+        # Exchange code for token
+        token_data = oauth_service.exchange_code_for_token(code)
+        if not token_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to exchange code for token",
+            )
+
+        # Get user data from GitHub
+        github_user = oauth_service.get_user_data(token_data["access_token"])
+        if not github_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to get user data from GitHub",
+            )
+
+        # Check if user exists
+        statement = select(User).where(User.github_id == str(github_user["id"]))
+        user = session.exec(statement).first()
+
+        if not user:
+            # Create new user
+            user = User(
+                email=github_user.get("email", f"{github_user['login']}@github.local"),
+                name=github_user.get("name", github_user["login"]),
+                github_id=str(github_user["id"]),
+                role="viewer",
+                is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+
+        # Create JWT tokens
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.email}, expires_delta=access_token_expires
+        )
+        refresh_token = create_refresh_token(data={"sub": user.email})
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "role": user.role,
+                "is_active": user.is_active,
+            },
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"GitHub OAuth callback failed: {str(e)}",
+        )

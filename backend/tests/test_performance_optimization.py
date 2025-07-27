@@ -767,7 +767,7 @@ class TestLoadTesting:
             try:
                 # Each thread makes multiple requests
                 for i in range(5):
-                    response = client.get(f"/api/products?page={i+1}&per_page=5")
+                    response = client.get(f"/api/products?page={i + 1}&per_page=5")
                     results.append(response.status_code)
             except Exception as e:
                 errors.append(str(e))

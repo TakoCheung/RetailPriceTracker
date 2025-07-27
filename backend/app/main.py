@@ -4,6 +4,7 @@ from fastapi import FastAPI, WebSocket
 
 from .database import init_db
 from .routes import (
+    admin,
     alerts,
     analytics,
     auth,
@@ -45,6 +46,7 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(monitoring.router, tags=["monitoring"])
 app.include_router(notifications.router, tags=["notifications"])
 app.include_router(auth.router)
+app.include_router(admin.router)
 
 
 # Add WebSocket route

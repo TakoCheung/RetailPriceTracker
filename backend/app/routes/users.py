@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from ..database import get_session
 from ..models import User, UserRole
+from ..routes.auth import get_current_user
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -128,8 +129,18 @@ def get_all_users(session: Session = Depends(get_session)):
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-def get_user_by_id(user_id: int, session: Session = Depends(get_session)):
-    """Get a specific user by ID."""
+def get_user_by_id(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Get user by ID (users can only access their own data, admins can access any)."""
+    # Users can only access their own data unless they're admin
+    if current_user.role != UserRole.ADMIN and current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
+
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(
@@ -177,3 +188,9 @@ def delete_user(user_id: int, session: Session = Depends(get_session)):
 
     session.delete(user)
     session.commit()
+
+
+@router.get("/profile", response_model=UserResponse)
+def get_user_profile(current_user: User = Depends(get_current_user)):
+    """Get current user profile."""
+    return current_user

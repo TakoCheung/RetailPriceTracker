@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
+from app.main import app
+from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
@@ -47,6 +49,12 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
     async with test_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
+
+
+@pytest.fixture
+def client():
+    """Test client for FastAPI application."""
+    return TestClient(app)
 
 
 @pytest.fixture

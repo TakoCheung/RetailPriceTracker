@@ -89,9 +89,9 @@ def get_products(session: Session = Depends(get_session)):
 
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
-    product_id: int, 
+    product_id: int,
     use_cache: bool = Query(False, description="Whether to use caching"),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Get a specific product by ID with optional caching."""
     if use_cache:
@@ -99,12 +99,12 @@ async def get_product(
         cached_product = await cache_service.get_cached_product(product_id)
         if cached_product:
             return cached_product
-    
+
     # Get from database
     product = session.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
+
     # Convert to dict for caching
     product_data = {
         "id": product.id,
@@ -117,11 +117,11 @@ async def get_product(
         "created_at": product.created_at.isoformat(),
         "updated_at": product.updated_at.isoformat(),
     }
-    
+
     # Cache the result if caching is enabled
     if use_cache:
         await cache_service.cache_product(product_id, product_data)
-    
+
     return product
 
 
