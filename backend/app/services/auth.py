@@ -56,6 +56,8 @@ class AuthService:
 
     def decode_token(self, token: str) -> Dict[str, Any]:
         """Decode and validate a JWT token."""
+        if not token:
+            raise JWTError("Token is required")
         try:
             return jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
         except jwt.ExpiredSignatureError:

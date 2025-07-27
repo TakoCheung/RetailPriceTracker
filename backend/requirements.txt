@@ -18,4 +18,5 @@ pytest
 pytest-asyncio
 freezegun
 factory-boy
+python-json-logger
 email-validator
