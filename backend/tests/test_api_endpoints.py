@@ -62,6 +62,39 @@ def client(test_db):
 
 
 @pytest.fixture
+def authenticated_client(test_db):
+    """Create a test client with authentication mocked for testing User API."""
+    from app.models import User, UserRole
+    from app.routes.auth import get_current_user
+
+    def get_test_session():
+        SessionLocal = sessionmaker(bind=test_engine)
+        session = SessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    # Mock user for testing - this will be the "current user" for authenticated endpoints
+    def mock_get_current_user():
+        return User(
+            id=1,
+            email="test@example.com",
+            name="Test User",
+            role=UserRole.ADMIN,  # Admin role allows access to all user data
+            is_active=True,
+        )
+
+    app.dependency_overrides[get_session] = get_test_session
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    client = TestClient(app)
+
+    yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def sample_products(test_db):
     """Create sample products for testing."""
     products = [
@@ -530,7 +563,7 @@ class TestUserAPI:
         assert len(data) >= 1
         assert data[0]["email"] == "create.user@example.com"
 
-    def test_get_user_by_id(self, client):
+    def test_get_user_by_id(self, authenticated_client):
         """Test retrieving a specific user by ID."""
         # First create a user
         user_data = {
@@ -539,11 +572,11 @@ class TestUserAPI:
             "password": "BobPassword123!",
             "role": "admin",
         }
-        create_response = client.post("/api/users/", json=user_data)
+        create_response = authenticated_client.post("/api/users/", json=user_data)
         user_id = create_response.json()["id"]
 
         # Test getting specific user
-        response = client.get(f"/api/users/{user_id}")
+        response = authenticated_client.get(f"/api/users/{user_id}")
 
         assert response.status_code == 200
         data = response.json()
@@ -552,7 +585,7 @@ class TestUserAPI:
         assert data["name"] == "Bob Smith"
         assert data["role"] == "admin"
 
-    def test_update_user(self, client):
+    def test_update_user(self, authenticated_client):
         """Test updating an existing user."""
         # First create a user
         user_data = {
@@ -561,7 +594,7 @@ class TestUserAPI:
             "password": "AlicePassword123!",
             "role": "viewer",
         }
-        create_response = client.post("/api/users/", json=user_data)
+        create_response = authenticated_client.post("/api/users/", json=user_data)
         user_id = create_response.json()["id"]
 
         # Update the user
@@ -570,7 +603,7 @@ class TestUserAPI:
             "role": "admin",
             "is_active": False,
         }
-        response = client.patch(f"/api/users/{user_id}", json=update_data)
+        response = authenticated_client.patch(f"/api/users/{user_id}", json=update_data)
 
         assert response.status_code == 200
         data = response.json()
@@ -580,7 +613,7 @@ class TestUserAPI:
         assert data["is_active"] is False
         assert data["email"] == "alice.brown@example.com"  # Should remain unchanged
 
-    def test_delete_user(self, client):
+    def test_delete_user(self, authenticated_client):
         """Test deleting a user."""
         # First create a user
         user_data = {
@@ -589,21 +622,21 @@ class TestUserAPI:
             "password": "CharliePassword123!",
             "role": "admin",
         }
-        create_response = client.post("/api/users/", json=user_data)
+        create_response = authenticated_client.post("/api/users/", json=user_data)
         user_id = create_response.json()["id"]
 
         # Delete the user
-        response = client.delete(f"/api/users/{user_id}")
+        response = authenticated_client.delete(f"/api/users/{user_id}")
 
         assert response.status_code == 204
 
         # Verify it's gone
-        get_response = client.get(f"/api/users/{user_id}")
+        get_response = authenticated_client.get(f"/api/users/{user_id}")
         assert get_response.status_code == 404
 
-    def test_get_user_not_found(self, client):
+    def test_get_user_not_found(self, authenticated_client):
         """Test getting a non-existent user."""
-        response = client.get("/api/users/99999")
+        response = authenticated_client.get("/api/users/99999")
 
         assert response.status_code == 404
         data = response.json()
@@ -921,7 +954,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": user_id,
             "default_currency": "EUR",
-            "timezone": "Europe/London",
+            "user_timezone": "Europe/London",
             "email_notifications": True,
             "webhook_url": "https://example.com/webhook",
             "items_per_page": 50,
@@ -933,7 +966,7 @@ class TestUserPreferencesAPI:
         data = response.json()
         assert data["user_id"] == user_id
         assert data["default_currency"] == "EUR"
-        assert data["timezone"] == "Europe/London"
+        assert data["user_timezone"] == "Europe/London"
         assert data["email_notifications"] is True
         assert data["webhook_url"] == "https://example.com/webhook"
         assert data["items_per_page"] == 50
@@ -954,7 +987,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": user_id,
             "default_currency": "USD",
-            "timezone": "UTC",
+            "user_timezone": "UTC",
         }
 
         # Create first preferences
@@ -981,7 +1014,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": user_id,
             "default_currency": "CAD",
-            "timezone": "America/Toronto",
+            "user_timezone": "America/Toronto",
             "email_notifications": False,
         }
         client.post("/api/preferences/", json=preferences_data)
@@ -993,7 +1026,7 @@ class TestUserPreferencesAPI:
         data = response.json()
         assert data["user_id"] == user_id
         assert data["default_currency"] == "CAD"
-        assert data["timezone"] == "America/Toronto"
+        assert data["user_timezone"] == "America/Toronto"
         assert data["email_notifications"] is False
 
     def test_get_preferences_by_id(self, client):
@@ -1010,7 +1043,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": user_id,
             "default_currency": "GBP",
-            "timezone": "Europe/London",
+            "user_timezone": "Europe/London",
         }
         create_response = client.post("/api/preferences/", json=preferences_data)
         preferences_id = create_response.json()["id"]
@@ -1022,7 +1055,7 @@ class TestUserPreferencesAPI:
         data = response.json()
         assert data["id"] == preferences_id
         assert data["default_currency"] == "GBP"
-        assert data["timezone"] == "Europe/London"
+        assert data["user_timezone"] == "Europe/London"
 
     def test_update_user_preferences(self, client):
         """Test updating user preferences."""
@@ -1038,7 +1071,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": user_id,
             "default_currency": "USD",
-            "timezone": "UTC",
+            "user_timezone": "UTC",
             "email_notifications": True,
             "items_per_page": 20,
         }
@@ -1048,7 +1081,7 @@ class TestUserPreferencesAPI:
         # Update preferences
         update_data = {
             "default_currency": "JPY",
-            "timezone": "Asia/Tokyo",
+            "user_timezone": "Asia/Tokyo",
             "email_notifications": False,
             "items_per_page": 100,
         }
@@ -1058,7 +1091,7 @@ class TestUserPreferencesAPI:
         data = response.json()
         assert data["id"] == preferences_id
         assert data["default_currency"] == "JPY"
-        assert data["timezone"] == "Asia/Tokyo"
+        assert data["user_timezone"] == "Asia/Tokyo"
         assert data["email_notifications"] is False
         assert data["items_per_page"] == 100
 
@@ -1076,7 +1109,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": user_id,
             "default_currency": "AUD",
-            "timezone": "Australia/Sydney",
+            "user_timezone": "Australia/Sydney",
         }
         create_response = client.post("/api/preferences/", json=preferences_data)
         preferences_id = create_response.json()["id"]
@@ -1103,7 +1136,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": 99999,
             "default_currency": "USD",
-            "timezone": "UTC",
+            "user_timezone": "UTC",
         }
 
         response = client.post("/api/preferences/", json=preferences_data)
@@ -1126,7 +1159,7 @@ class TestUserPreferencesAPI:
         preferences_data = {
             "user_id": user_id,
             "default_currency": "USD",
-            "timezone": "UTC",
+            "user_timezone": "UTC",
             "items_per_page": 5,  # Too low (min 10)
         }
 
@@ -1152,7 +1185,7 @@ class TestUserPreferencesAPI:
             preferences_data = {
                 "user_id": user_id,
                 "default_currency": "USD" if i == 0 else "EUR",
-                "timezone": "UTC",
+                "user_timezone": "UTC",
             }
             client.post("/api/preferences/", json=preferences_data)
 

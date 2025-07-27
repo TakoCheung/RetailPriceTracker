@@ -115,13 +115,6 @@ class Product(SQLModel, table=True):
             raise ValidationError("Product name must be at least 2 characters long")
         return v.strip()
 
-    def __init__(self, **data):
-        if "name" in data:
-            name = data["name"]
-            if not name or len(name.strip()) < 2:
-                raise ValueError("Product name must be at least 2 characters long")
-        super().__init__(**data)
-
     def is_valid_name(self) -> bool:
         """Check if the product name is valid."""
         return len(self.name.strip()) >= 2 if self.name else False
@@ -305,7 +298,7 @@ class PriceAlert(SQLModel, table=True):
         # Validate notification_channels
         if "notification_channels" in data:
             channels = data["notification_channels"]
-            valid_channels = {"email", "websocket", "push"}
+            valid_channels = {"email", "webhook", "sms"}
             for channel in channels:
                 if channel not in valid_channels:
                     raise ValueError(f"Invalid notification channel: {channel}")
