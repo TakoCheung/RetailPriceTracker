@@ -43,9 +43,9 @@ async def detailed_health_check():
     """Detailed health check endpoint using HealthCheckService."""
     from .database import get_session
     from .utils.health_check import HealthCheckService
-    
+
     health_service = HealthCheckService()
-    
+
     # Get database session (simplified for health check)
     try:
         async for session in get_session():
@@ -56,16 +56,15 @@ async def detailed_health_check():
             "timestamp": datetime.utcnow().isoformat(),
             "overall_status": "unhealthy",
             "error": str(e),
-            "components": []
+            "components": [],
         }
-    
+
     status_code = 200 if result.get("overall_status") == "healthy" else 503
-    
+
     from fastapi import Response
+
     return Response(
-        content=str(result),
-        status_code=status_code,
-        media_type="application/json"
+        content=str(result), status_code=status_code, media_type="application/json"
     )
 
 
