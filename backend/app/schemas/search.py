@@ -20,7 +20,7 @@ class SearchProductResult(BaseModel):
     url: Optional[str] = None
     status: Optional[str] = "ACTIVE"
     created_at: Optional[str] = None
-    current_price: Optional[Dict[str, Any]] = None
+    current_price: Optional[float] = None
     currency: Optional[str] = None
     is_available: bool = False
     providers: List[Dict[str, Any]] = []
@@ -33,7 +33,7 @@ class SearchProductsResponse(BaseModel):
     """Response for product search endpoint."""
 
     results: List[SearchProductResult]
-    total: int
+    total_count: int
     page: int = 1
     per_page: int = 20
     total_pages: int

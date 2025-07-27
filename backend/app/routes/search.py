@@ -315,14 +315,7 @@ def build_product_result(
     if price_record:
         result_data.update(
             {
-                "current_price": {
-                    "price": price_record.price,
-                    "currency": price_record.currency,
-                    "provider": provider.name if provider else None,
-                    "recorded_at": price_record.recorded_at.isoformat()
-                    if price_record.recorded_at
-                    else None,
-                },
+                "current_price": price_record.price,  # Simple float value
                 "currency": price_record.currency,
             }
         )
@@ -374,8 +367,16 @@ async def search_products(
         "name",
         description="Sort field (name, price_asc, price_desc, newest, relevance)",
     ),
+    sort_by: Optional[str] = Query(
+        None, description="Sort field (name, price, category, date)"
+    ),
+    sort_order: Optional[str] = Query(None, description="Sort order (asc, desc)"),
     page: Optional[int] = Query(1, description="Page number"),
     per_page: Optional[int] = Query(20, description="Items per page"),
+    limit: Optional[int] = Query(
+        None, description="Number of items per page (alias for per_page)"
+    ),
+    offset: Optional[int] = Query(None, description="Number of items to skip"),
     facets: Optional[str] = Query(
         None, description="Comma-separated list of facets to include"
     ),
@@ -402,35 +403,53 @@ async def search_products(
     # Use either q or query parameter
     search_query_text = q or query
 
-    # Handle pagination
-    limit = per_page
-    offset = (page - 1) * limit
+    # Handle pagination - support both page/per_page and limit/offset styles
+    if limit is not None and offset is not None:
+        # Use limit/offset pagination style
+        page_limit = limit
+        page_offset = offset
+        calculated_page = (offset // limit) + 1 if limit > 0 else 1
+    else:
+        # Use page/per_page pagination style
+        page_limit = per_page
+        page_offset = (page - 1) * per_page
+        calculated_page = page
 
     # Parse sorting with validation
-    sort_by = "name"
-    sort_order = "asc"
-
-    if sort:
-        if sort == "price_asc":
-            sort_by = "price"
-            sort_order = "asc"
-        elif sort == "price_desc":
-            sort_by = "price"
-            sort_order = "desc"
-        elif sort == "newest":
-            sort_by = "date"
-            sort_order = "desc"
-        elif sort == "relevance":
-            sort_by = "relevance"
-            sort_order = "desc"
-        elif sort in ["name", "price", "category", "date"]:
-            sort_by = sort
-            sort_order = "asc"
-        else:
+    if sort_by and sort_order:
+        # Use explicit sort_by and sort_order parameters
+        if sort_by not in ["name", "price", "category", "date", "relevance"]:
+            raise HTTPException(status_code=422, detail="Invalid sort_by field")
+        if sort_order not in ["asc", "desc"]:
             raise HTTPException(
-                status_code=400,
-                detail="Invalid sort parameter. Must be one of: name, price_asc, price_desc, newest, relevance",
+                status_code=422, detail="Invalid sort_order. Must be 'asc' or 'desc'"
             )
+    else:
+        # Use the sort parameter
+        sort_by = "name"
+        sort_order = "asc"
+
+        if sort:
+            if sort == "price_asc":
+                sort_by = "price"
+                sort_order = "asc"
+            elif sort == "price_desc":
+                sort_by = "price"
+                sort_order = "desc"
+            elif sort == "newest":
+                sort_by = "date"
+                sort_order = "desc"
+            elif sort == "relevance":
+                sort_by = "relevance"
+                sort_order = "desc"
+            elif sort in ["name", "price", "category", "date"]:
+                sort_by = sort
+                sort_order = "asc"
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid sort parameter. Must be one of: name, price_asc, price_desc, newest, relevance",
+                )
 
     # Validate price range
     if min_price is not None and max_price is not None and min_price > max_price:
@@ -466,7 +485,7 @@ async def search_products(
         )
 
         # Execute query
-        products = search_query.offset(offset).limit(limit).all()
+        products = search_query.offset(page_offset).limit(page_limit).all()
 
         # Build response results
         search_results = []
@@ -498,15 +517,23 @@ async def search_products(
             search_results.append(result)
 
         # Calculate pagination info
-        total_pages = (total_count + limit - 1) // limit
+        total_pages = (total_count + page_limit - 1) // page_limit
 
         search_time = calculate_search_time(start_time)
 
+        # Determine final pagination values for response
+        if limit is not None and offset is not None:
+            final_page = (offset // limit) + 1 if limit > 0 else 1
+            final_per_page = limit
+        else:
+            final_page = page
+            final_per_page = per_page
+
         response_data = {
             "results": search_results,
-            "total": total_count,
-            "page": page,
-            "per_page": per_page,
+            "total_count": total_count,
+            "page": final_page,
+            "per_page": final_per_page,
             "total_pages": total_pages,
             "search_time_ms": search_time,
             "query": search_query_text,
