@@ -51,9 +51,9 @@ app.include_router(admin.router)
 
 # Add WebSocket route
 @app.websocket("/ws")
-async def websocket_route(websocket: WebSocket, client_id: str = None):
+async def websocket_route(websocket: WebSocket, token: str = None):
     """WebSocket endpoint for real-time price updates."""
-    await websocket_endpoint(websocket, client_id)
+    await websocket_endpoint(websocket, token)
 
 
 @app.on_event("startup")

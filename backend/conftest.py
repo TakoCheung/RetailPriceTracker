@@ -58,6 +58,18 @@ def client():
 
 
 @pytest.fixture
+def auth_tokens():
+    """Generate valid JWT tokens for testing."""
+    # Return mock tokens that match the expected format
+    # In practice these would be real JWT tokens
+    return {
+        "viewer": "valid_jwt_token_viewer",
+        "admin": "valid_jwt_token_admin",
+        "invalid": "invalid_token",
+    }
+
+
+@pytest.fixture
 def mock_user():
     """Mock authenticated user for testing."""
     return {

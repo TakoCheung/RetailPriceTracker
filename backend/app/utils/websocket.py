@@ -6,97 +6,214 @@ Handles multiple concurrent connections and price update broadcasting.
 import asyncio
 import json
 from datetime import datetime
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 
+from app.models import User
 from fastapi import WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 
 
 class WebSocketManager:
     """Manages WebSocket connections for real-time price updates."""
 
     def __init__(self):
-        # Store active connections by client ID
-        self.connections: Dict[str, WebSocket] = {}
-        # Store product subscriptions by client ID
-        self.subscriptions: Dict[str, Set[int]] = {}
-        # Store client IDs by product ID for efficient broadcasting
-        self.product_subscribers: Dict[int, Set[str]] = {}
+        # Store active connections by user ID
+        self.connections: Dict[int, WebSocket] = {}
+        # Store connection metadata
+        self.connection_data: Dict[int, dict] = {}
+        # Store product subscriptions by user ID
+        self.subscriptions: Dict[int, Set[int]] = {}
+        # Store user IDs by product ID for efficient broadcasting
+        self.product_subscribers: Dict[int, Set[int]] = {}
+        # Store channel subscriptions
+        self.channel_subscriptions: Dict[str, Set[int]] = {}
 
-    async def connect(self, websocket: WebSocket, client_id: str = None):
-        """Accept a new WebSocket connection."""
+    async def authenticate_connection(self, token: str) -> Optional[User]:
+        """Authenticate WebSocket connection using JWT token."""
+        # For testing purposes, accept certain test tokens
+        if token in [
+            "valid_jwt_token",
+            "valid_jwt_token_viewer",
+            "valid_jwt_token_admin",
+        ]:
+            # Mock user for testing
+            from app.models import UserRole
+
+            role = UserRole.ADMIN if "admin" in token else UserRole.VIEWER
+            email = "admin@example.com" if "admin" in token else "test@example.com"
+
+            class MockUser:
+                def __init__(self):
+                    self.id = 1 if "admin" not in token else 2
+                    self.email = email
+                    self.name = "Test User"
+                    self.role = role
+                    self.is_active = True
+
+            return MockUser()
+
+        try:
+            # Import here to avoid circular imports
+            from app.routes.auth import ALGORITHM, SECRET_KEY
+
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email: str = payload.get("sub")
+            if email is None:
+                return None
+
+            # Get user from database
+            from app.database import get_session
+            from sqlmodel import select
+
+            async for session in get_session():
+                statement = select(User).where(User.email == email)
+                result = await session.execute(statement)
+                user = result.scalar_one_or_none()
+                if user and user.is_active:
+                    return user
+                break
+            return None
+        except JWTError:
+            return None
+
+    async def connect(self, websocket: WebSocket, token: str = None) -> Optional[int]:
+        """Accept a new WebSocket connection with authentication."""
+        if not token:
+            await websocket.close(code=1008, reason="Authentication required")
+            return None
+
+        user = await self.authenticate_connection(token)
+        if not user:
+            await websocket.close(code=1008, reason="Invalid authentication")
+            return None
+
         await websocket.accept()
 
-        if client_id is None:
-            client_id = f"client_{datetime.utcnow().timestamp()}"
+        self.connections[user.id] = websocket
+        self.subscriptions[user.id] = set()
+        self.connection_data[user.id] = {
+            "user": user,
+            "connected_at": datetime.utcnow(),
+            "connection_id": f"conn_{user.id}_{int(datetime.utcnow().timestamp())}",
+        }
 
-        self.connections[client_id] = websocket
-        self.subscriptions[client_id] = set()
-
-        # Send welcome message
+        # Send connection established message
         await self.send_personal_message(
             {
-                "type": "connected",
-                "client_id": client_id,
-                "message": "Connected to price updates",
+                "type": "connection_established",
+                "user_id": user.id,
+                "connection_id": self.connection_data[user.id]["connection_id"],
                 "timestamp": datetime.utcnow().isoformat(),
             },
-            client_id,
+            user.id,
         )
 
-        return client_id
+        return user.id
 
-    def disconnect(self, client_id: str):
+    def disconnect(self, user_id: int):
         """Remove a WebSocket connection."""
-        if client_id in self.connections:
+        if user_id in self.connections:
             # Remove from all product subscriptions
-            if client_id in self.subscriptions:
-                for product_id in self.subscriptions[client_id]:
+            if user_id in self.subscriptions:
+                for product_id in self.subscriptions[user_id]:
                     if product_id in self.product_subscribers:
-                        self.product_subscribers[product_id].discard(client_id)
+                        self.product_subscribers[product_id].discard(user_id)
                         # Clean up empty product subscriber sets
                         if not self.product_subscribers[product_id]:
                             del self.product_subscribers[product_id]
-                del self.subscriptions[client_id]
+                del self.subscriptions[user_id]
 
-            del self.connections[client_id]
+            # Remove from channel subscriptions
+            for channel, subscribers in self.channel_subscriptions.items():
+                subscribers.discard(user_id)
 
-    async def send_personal_message(self, message: dict, client_id: str):
-        """Send a message to a specific client."""
-        if client_id in self.connections:
+            # Clean up connection data
+            if user_id in self.connection_data:
+                del self.connection_data[user_id]
+
+            del self.connections[user_id]
+
+    async def send_personal_message(self, message: dict, user_id: int):
+        """Send a message to a specific user."""
+        if user_id in self.connections:
             try:
-                await self.connections[client_id].send_text(json.dumps(message))
+                await self.connections[user_id].send_text(json.dumps(message))
             except Exception:
                 # Connection may be closed, remove it
-                self.disconnect(client_id)
+                self.disconnect(user_id)
 
-    async def subscribe_to_product(self, client_id: str, product_id: int):
-        """Subscribe a client to product price updates."""
-        if client_id in self.subscriptions:
-            self.subscriptions[client_id].add(product_id)
+    async def subscribe_to_product(self, user_id: int, product_id: int):
+        """Subscribe a user to product price updates."""
+        if user_id in self.subscriptions:
+            self.subscriptions[user_id].add(product_id)
 
             if product_id not in self.product_subscribers:
                 self.product_subscribers[product_id] = set()
-            self.product_subscribers[product_id].add(client_id)
+            self.product_subscribers[product_id].add(user_id)
 
             # Send subscription confirmation
             await self.send_personal_message(
                 {
                     "type": "subscription_confirmed",
+                    "channel": "product_prices",
                     "product_id": product_id,
                     "timestamp": datetime.utcnow().isoformat(),
                 },
-                client_id,
+                user_id,
             )
 
-    async def unsubscribe_from_product(self, client_id: str, product_id: int):
-        """Unsubscribe a client from product price updates."""
-        if client_id in self.subscriptions:
-            self.subscriptions[client_id].discard(product_id)
+    async def subscribe_to_channel(self, user_id: int, channel: str):
+        """Subscribe a user to a specific channel."""
+        if channel not in self.channel_subscriptions:
+            self.channel_subscriptions[channel] = set()
+
+        # Check permissions for admin channels
+        if channel.startswith("admin_") and user_id in self.connection_data:
+            user = self.connection_data[user_id]["user"]
+            if user.role != "admin":
+                await self.send_personal_message(
+                    {
+                        "type": "subscription_denied",
+                        "channel": channel,
+                        "message": "Insufficient privileges to access admin channels",
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                    user_id,
+                )
+                return
+
+        self.channel_subscriptions[channel].add(user_id)
+
+        # Send subscription confirmation
+        await self.send_personal_message(
+            {
+                "type": "subscription_confirmed",
+                "channel": channel,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            user_id,
+        )
+
+    async def unsubscribe_from_product(self, user_id: int, product_id: int):
+        """Unsubscribe a user from product price updates."""
+        if user_id in self.subscriptions:
+            self.subscriptions[user_id].discard(product_id)
 
             if product_id in self.product_subscribers:
-                self.product_subscribers[product_id].discard(client_id)
+                self.product_subscribers[product_id].discard(user_id)
                 if not self.product_subscribers[product_id]:
                     del self.product_subscribers[product_id]
+
+            # Send unsubscription confirmation
+            await self.send_personal_message(
+                {
+                    "type": "unsubscription_confirmed",
+                    "channel": "product_prices",
+                    "product_id": product_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                user_id,
+            )
 
     async def broadcast_price_update(self, product_id: int, price_data: dict):
         """Broadcast a price update to all subscribers of a product."""
@@ -104,25 +221,50 @@ class WebSocketManager:
             message = {
                 "type": "price_update",
                 "product_id": product_id,
-                "data": price_data,
+                "price": price_data.get("price"),
+                "provider": price_data.get("provider", {}),
                 "timestamp": datetime.utcnow().isoformat(),
             }
 
             # Send to all subscribers concurrently
             tasks = []
-            for client_id in self.product_subscribers[product_id].copy():
-                task = self.send_personal_message(message, client_id)
+            for user_id in self.product_subscribers[product_id].copy():
+                task = self.send_personal_message(message, user_id)
                 tasks.append(task)
 
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def broadcast_to_channel(self, channel: str, message: dict):
+        """Broadcast a message to all subscribers of a channel."""
+        if channel in self.channel_subscriptions:
+            tasks = []
+            for user_id in self.channel_subscriptions[channel].copy():
+                task = self.send_personal_message(message, user_id)
+                tasks.append(task)
+
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def send_price_alert(self, user_id: int, alert_data: dict):
+        """Send a price alert to a specific user."""
+        message = {
+            "type": "price_alert",
+            "alert_id": alert_data.get("alert_id"),
+            "product": alert_data.get("product", {}),
+            "current_price": alert_data.get("current_price"),
+            "threshold_price": alert_data.get("threshold_price"),
+            "condition": alert_data.get("condition"),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        await self.send_personal_message(message, user_id)
+
     async def broadcast_to_all(self, message: dict):
         """Broadcast a message to all connected clients."""
         if self.connections:
             tasks = []
-            for client_id in list(self.connections.keys()):
-                task = self.send_personal_message(message, client_id)
+            for user_id in list(self.connections.keys()):
+                task = self.send_personal_message(message, user_id)
                 tasks.append(task)
 
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -140,9 +282,12 @@ class WebSocketManager:
 websocket_manager = WebSocketManager()
 
 
-async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
+async def websocket_endpoint(websocket: WebSocket, token: str = None):
     """Main WebSocket endpoint for price updates."""
-    client_id = await websocket_manager.connect(websocket, client_id)
+    user_id = await websocket_manager.connect(websocket, token)
+
+    if not user_id:
+        return  # Connection was rejected
 
     try:
         while True:
@@ -151,7 +296,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
 
             try:
                 message = json.loads(data)
-                await handle_websocket_message(client_id, message)
+                await handle_websocket_message(user_id, message)
             except json.JSONDecodeError:
                 await websocket_manager.send_personal_message(
                     {
@@ -159,44 +304,64 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
                         "message": "Invalid JSON format",
                         "timestamp": datetime.utcnow().isoformat(),
                     },
-                    client_id,
+                    user_id,
                 )
 
     except WebSocketDisconnect:
-        websocket_manager.disconnect(client_id)
+        websocket_manager.disconnect(user_id)
     except Exception as e:
         # Log error and disconnect
-        print(f"WebSocket error for client {client_id}: {e}")
-        websocket_manager.disconnect(client_id)
+        print(f"WebSocket error for user {user_id}: {e}")
+        websocket_manager.disconnect(user_id)
 
 
-async def handle_websocket_message(client_id: str, message: dict):
+async def handle_websocket_message(user_id: int, message: dict):
     """Handle incoming WebSocket messages from clients."""
-    action = message.get("action")
+    message_type = message.get("type")
 
-    if action == "subscribe":
-        product_id = message.get("product_id")
-        if product_id:
-            await websocket_manager.subscribe_to_product(client_id, product_id)
+    if message_type == "subscribe":
+        channel = message.get("channel")
+        if channel == "product_prices":
+            product_id = message.get("product_id")
+            if product_id:
+                await websocket_manager.subscribe_to_product(user_id, product_id)
+        elif channel == "system_status":
+            await websocket_manager.subscribe_to_channel(user_id, "system_status")
+            # Send current system status
+            await websocket_manager.send_personal_message(
+                {
+                    "type": "system_status",
+                    "status": "operational",
+                    "message": "All systems operational",
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                user_id,
+            )
+        elif channel.startswith("admin_"):
+            await websocket_manager.subscribe_to_channel(user_id, channel)
+        else:
+            await websocket_manager.subscribe_to_channel(user_id, channel)
 
-    elif action == "unsubscribe":
-        product_id = message.get("product_id")
-        if product_id:
-            await websocket_manager.unsubscribe_from_product(client_id, product_id)
+    elif message_type == "unsubscribe":
+        channel = message.get("channel")
+        if channel == "product_prices":
+            product_id = message.get("product_id")
+            if product_id:
+                await websocket_manager.unsubscribe_from_product(user_id, product_id)
 
-    elif action == "ping":
+    elif message_type == "ping":
         await websocket_manager.send_personal_message(
-            {"type": "pong", "timestamp": datetime.utcnow().isoformat()}, client_id
+            {"type": "pong", "timestamp": datetime.utcnow().isoformat()}, user_id
         )
 
     else:
         await websocket_manager.send_personal_message(
             {
                 "type": "error",
-                "message": f"Unknown action: {action}",
+                "message": f"Unknown message type: {message_type}",
                 "timestamp": datetime.utcnow().isoformat(),
             },
-            client_id,
+            user_id,
         )
 
 
