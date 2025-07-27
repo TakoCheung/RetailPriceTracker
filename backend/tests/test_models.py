@@ -293,11 +293,11 @@ class TestPriceRecordModel:
     async def test_currency_validation(self, db_session: AsyncSession):
         """Test currency code validation."""
         # Test invalid currency length
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             PriceRecord(product_id=1, provider_id=1, price=10.0, currency="US")
 
         # Test lowercase currency
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             PriceRecord(product_id=1, provider_id=1, price=10.0, currency="usd")
 
         # Test valid currency
@@ -395,7 +395,7 @@ class TestPriceAlertModel:
     async def test_notification_channels_validation(self, db_session: AsyncSession):
         """Test notification channels validation."""
         # Test invalid channel
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             PriceAlert(
                 user_id=1,
                 product_id=1,
@@ -465,7 +465,7 @@ class TestUserPreferenceModel:
         assert preference.id is not None
         assert preference.user_id == user.id
         assert preference.default_currency == "USD"
-        assert preference.timezone == "UTC"
+        assert preference.user_timezone == "UTC"
         assert preference.email_notifications is True
         assert preference.push_notifications is False
         assert preference.items_per_page == 20
@@ -497,22 +497,22 @@ class TestUserPreferenceModel:
     async def test_currency_validation(self, db_session: AsyncSession):
         """Test currency validation in user preferences."""
         # Test invalid currency length
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             UserPreference(user_id=1, default_currency="US")
 
         # Test lowercase currency
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             UserPreference(user_id=1, default_currency="usd")
 
     @pytest.mark.asyncio
     async def test_items_per_page_validation(self, db_session: AsyncSession):
         """Test items per page validation."""
         # Test too low
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             UserPreference(user_id=1, items_per_page=0)
 
         # Test too high
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             UserPreference(user_id=1, items_per_page=150)
 
         # Test valid range

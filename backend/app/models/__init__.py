@@ -7,6 +7,7 @@ from enum import Enum as PyEnum
 from typing import List, Optional
 
 from pydantic import EmailStr, ValidationError, field_validator, model_validator
+from pydantic_core import ErrorDetails
 from sqlalchemy import JSON
 from sqlmodel import Column, Field, Relationship, SQLModel
 
@@ -127,11 +128,14 @@ class Provider(SQLModel, table=True):
     __tablename__ = "providers"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(min_length=2, max_length=100)
+    name: str = Field(
+        min_length=2, max_length=100, unique=True
+    )  # Added unique constraint
     base_url: str = Field(max_length=2048)
     api_key: Optional[str] = Field(default=None, max_length=255)
     rate_limit: int = Field(default=100, ge=1, le=10000)
     is_active: bool = Field(default=True)
+    health_status: str = Field(default="unknown", max_length=20)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -211,6 +215,21 @@ class PriceRecord(SQLModel, table=True):
     product: Product = Relationship(back_populates="price_records")
     provider: Provider = Relationship(back_populates="price_records")
 
+    def __init__(self, **data):
+        # Validate price
+        if "price" in data:
+            price = data["price"]
+            if price <= 0:
+                raise ValueError("Price must be greater than 0")
+
+        # Validate currency
+        if "currency" in data:
+            currency = data["currency"]
+            if len(currency) != 3 or not currency.isupper():
+                raise ValueError("Currency must be 3 uppercase letters")
+
+        super().__init__(**data)
+
 
 class PriceAlert(SQLModel, table=True):
     """Price alert model for notifications."""
@@ -234,6 +253,17 @@ class PriceAlert(SQLModel, table=True):
     user: User = Relationship(back_populates="alerts")
     product: Product = Relationship(back_populates="alerts")
 
+    def __init__(self, **data):
+        # Validate notification_channels
+        if "notification_channels" in data:
+            channels = data["notification_channels"]
+            valid_channels = {"email", "websocket", "push"}
+            for channel in channels:
+                if channel not in valid_channels:
+                    raise ValueError(f"Invalid notification channel: {channel}")
+
+        super().__init__(**data)
+
 
 class UserPreference(SQLModel, table=True):
     """User preference model for settings."""
@@ -243,12 +273,30 @@ class UserPreference(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", unique=True, index=True)
     default_currency: str = Field(default="USD", max_length=3)
-    timezone: str = Field(default="UTC", max_length=50)
+    user_timezone: str = Field(default="UTC", max_length=50)
     email_notifications: bool = Field(default=True)
+    push_notifications: bool = Field(default=False)
     webhook_url: Optional[str] = Field(default=None, max_length=2048)
     items_per_page: int = Field(default=20, ge=10, le=100)
+    chart_type: str = Field(default="line", max_length=50)
+    default_time_range: str = Field(default="7d", max_length=10)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     # Relationships
     user: User = Relationship(back_populates="preferences")
+
+    def __init__(self, **data):
+        # Validate currency
+        if "default_currency" in data:
+            currency = data["default_currency"]
+            if len(currency) != 3 or not currency.isupper():
+                raise ValueError("Currency must be 3 uppercase letters")
+
+        # Validate items_per_page
+        if "items_per_page" in data:
+            items = data["items_per_page"]
+            if not (1 <= items <= 100):
+                raise ValueError("Items per page must be between 1 and 100")
+
+        super().__init__(**data)
