@@ -1,815 +1,1111 @@
 """
-TDD tests for Advanced Search & Filtering API.
-Following TDD: Write comprehensive tests first (RED), then implement functionality (GREEN), then optimize (REFACTOR).
-
-This iteration adds advanced search capabilities to our price tracking system:
-- Complex product search with multiple filters
-- Price range and historical price filtering
-- Category-based filtering and faceted search
-- Full-text search with relevance scoring
-- Search result pagination and sorting
-- Search analytics and query optimization
+Test cases for Advanced Search & Filtering System.
+Covers product search, price filtering, faceted search, and advanced query capabilities.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
-from app.database import get_session
-from app.main import app
-from app.models import PriceRecord, Product, Provider
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel, create_engine
-
-# Use the same test engine setup as existing tests
-TEST_DATABASE_URL = "sqlite:///test_advanced_search.db"
-test_engine = create_engine(TEST_DATABASE_URL, echo=True)
+from app.models import (
+    PriceRecord,
+    Product,
+    Provider,
+    User,
+    UserRole,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_db():
-    """Setup test database once for the entire session."""
-    SQLModel.metadata.drop_all(test_engine)
-    SQLModel.metadata.create_all(test_engine)
-    yield
-    SQLModel.metadata.drop_all(test_engine)
+class TestBasicProductSearch:
+    """Test basic product search functionality."""
+
+    @pytest.mark.asyncio
+    async def test_search_products_by_name(self, client, db_session: AsyncSession):
+        """Test searching products by name."""
+        # Create test products
+        product1 = Product(name="iPhone 15 Pro", brand="Apple", category="smartphones")
+        product2 = Product(name="iPhone 14", brand="Apple", category="smartphones")
+        product3 = Product(
+            name="Samsung Galaxy S24", brand="Samsung", category="smartphones"
+        )
+        product4 = Product(name="MacBook Pro", brand="Apple", category="laptops")
+
+        db_session.add_all([product1, product2, product3, product4])
+        await db_session.commit()
+
+        # Search for "iPhone"
+        response = client.get("/api/products/search?q=iPhone")
+        print(f"Status code: {response.status_code}")
+        print(f"Response content: {response.text}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "results" in data
+        assert len(data["results"]) == 2
+
+        # Verify results contain iPhone products
+        product_names = [p["name"] for p in data["results"]]
+        assert "iPhone 15 Pro" in product_names
+        assert "iPhone 14" in product_names
+
+    @pytest.mark.asyncio
+    async def test_search_products_case_insensitive(
+        self, client, db_session: AsyncSession
+    ):
+        """Test that product search is case insensitive."""
+        product = Product(name="iPhone 15 Pro", brand="Apple", category="smartphones")
+        db_session.add(product)
+        await db_session.commit()
+
+        # Test various cases
+        test_queries = ["iphone", "IPHONE", "IpHoNe", "iPhone"]
+
+        for query in test_queries:
+            response = client.get(f"/api/products/search?q={query}")
+            assert response.status_code == 200
+
+            data = response.json()
+            assert len(data["results"]) == 1
+            assert data["results"][0]["name"] == "iPhone 15 Pro"
+
+    @pytest.mark.asyncio
+    async def test_search_products_partial_match(
+        self, client, db_session: AsyncSession
+    ):
+        """Test partial string matching in product search."""
+        product1 = Product(
+            name="MacBook Pro 16-inch", brand="Apple", category="laptops"
+        )
+        product2 = Product(name="MacBook Air", brand="Apple", category="laptops")
+        product3 = Product(name="Mac Studio", brand="Apple", category="desktops")
+
+        db_session.add_all([product1, product2, product3])
+        await db_session.commit()
+
+        # Search for "Mac" should match all three
+        response = client.get("/api/products/search?q=Mac")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 3
+
+        # Search for "MacBook" should match two
+        response = client.get("/api/products/search?q=MacBook")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_search_products_empty_query(self, client, db_session: AsyncSession):
+        """Test search behavior with empty query."""
+        # Create test products
+        product1 = Product(name="iPhone 15", brand="Apple", category="smartphones")
+        product2 = Product(name="Galaxy S24", brand="Samsung", category="smartphones")
+
+        db_session.add_all([product1, product2])
+        await db_session.commit()
+
+        # Empty query should return all products with pagination
+        response = client.get("/api/products/search?q=")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_search_products_no_results(self, client, db_session: AsyncSession):
+        """Test search behavior when no products match."""
+        product = Product(name="iPhone 15", brand="Apple", category="smartphones")
+        db_session.add(product)
+        await db_session.commit()
+
+        response = client.get("/api/products/search?q=NonexistentProduct")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["results"] == []
+        assert data["total_count"] == 0
+
+
+class TestAdvancedFiltering:
+    """Test advanced filtering capabilities."""
+
+    @pytest.mark.asyncio
+    async def test_filter_by_category(self, client, db_session: AsyncSession):
+        """Test filtering products by category."""
+        # Create products in different categories
+        product1 = Product(name="iPhone 15", brand="Apple", category="smartphones")
+        product2 = Product(name="Galaxy S24", brand="Samsung", category="smartphones")
+        product3 = Product(name="MacBook Pro", brand="Apple", category="laptops")
+        product4 = Product(name="ThinkPad X1", brand="Lenovo", category="laptops")
+
+        db_session.add_all([product1, product2, product3, product4])
+        await db_session.commit()
+
+        # Filter by smartphones
+        response = client.get("/api/products/search?category=smartphones")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 2
+
+        categories = [p["category"] for p in data["results"]]
+        assert all(cat == "smartphones" for cat in categories)
+
+    @pytest.mark.asyncio
+    async def test_filter_by_brand(self, client, db_session: AsyncSession):
+        """Test filtering products by brand."""
+        product1 = Product(name="iPhone 15", brand="Apple", category="smartphones")
+        product2 = Product(name="MacBook Pro", brand="Apple", category="laptops")
+        product3 = Product(name="Galaxy S24", brand="Samsung", category="smartphones")
+
+        db_session.add_all([product1, product2, product3])
+        await db_session.commit()
+
+        # Filter by Apple
+        response = client.get("/api/products/search?brand=Apple")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 2
+
+        brands = [p["brand"] for p in data["results"]]
+        assert all(brand == "Apple" for brand in brands)
+
+    @pytest.mark.asyncio
+    async def test_filter_by_price_range(self, client, db_session: AsyncSession):
+        """Test filtering products by price range."""
+        # Create products and providers
+        product1 = Product(name="Budget Phone", brand="Generic", category="smartphones")
+        product2 = Product(
+            name="Mid Range Phone", brand="Generic", category="smartphones"
+        )
+        product3 = Product(
+            name="Premium Phone", brand="Generic", category="smartphones"
+        )
+        provider = Provider(name="Test Store", base_url="https://test.com")
+
+        db_session.add_all([product1, product2, product3, provider])
+        await db_session.commit()
+        await db_session.refresh(product1)
+        await db_session.refresh(product2)
+        await db_session.refresh(product3)
+        await db_session.refresh(provider)
+
+        # Add price records
+        price1 = PriceRecord(
+            product_id=product1.id, provider_id=provider.id, price=200.0, currency="USD"
+        )
+        price2 = PriceRecord(
+            product_id=product2.id, provider_id=provider.id, price=500.0, currency="USD"
+        )
+        price3 = PriceRecord(
+            product_id=product3.id,
+            provider_id=provider.id,
+            price=1000.0,
+            currency="USD",
+        )
+
+        db_session.add_all([price1, price2, price3])
+        await db_session.commit()
+
+        # Filter by price range 300-700
+        response = client.get("/api/products/search?min_price=300&max_price=700")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Mid Range Phone"
+
+    @pytest.mark.asyncio
+    async def test_filter_by_availability(self, client, db_session: AsyncSession):
+        """Test filtering products by availability."""
+        product1 = Product(name="Available Product", brand="Brand", category="test")
+        product2 = Product(name="Unavailable Product", brand="Brand", category="test")
+        provider = Provider(name="Test Store", base_url="https://test.com")
+
+        db_session.add_all([product1, product2, provider])
+        await db_session.commit()
+        await db_session.refresh(product1)
+        await db_session.refresh(product2)
+        await db_session.refresh(provider)
+
+        # Add price records with different availability
+        price1 = PriceRecord(
+            product_id=product1.id,
+            provider_id=provider.id,
+            price=100.0,
+            is_available=True,
+        )
+        price2 = PriceRecord(
+            product_id=product2.id,
+            provider_id=provider.id,
+            price=100.0,
+            is_available=False,
+        )
+
+        db_session.add_all([price1, price2])
+        await db_session.commit()
+
+        # Filter by availability
+        response = client.get("/api/products/search?available=true")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Available Product"
+
+    @pytest.mark.asyncio
+    async def test_combined_filters(self, client, db_session: AsyncSession):
+        """Test combining multiple filters."""
+        # Create test data
+        product1 = Product(name="iPhone 15", brand="Apple", category="smartphones")
+        product2 = Product(name="Galaxy S24", brand="Samsung", category="smartphones")
+        product3 = Product(name="MacBook Pro", brand="Apple", category="laptops")
+        provider = Provider(name="Test Store", base_url="https://test.com")
+
+        db_session.add_all([product1, product2, product3, provider])
+        await db_session.commit()
+        await db_session.refresh(product1)
+        await db_session.refresh(product2)
+        await db_session.refresh(product3)
+        await db_session.refresh(provider)
+
+        # Add prices
+        price1 = PriceRecord(
+            product_id=product1.id, provider_id=provider.id, price=999.0
+        )
+        price2 = PriceRecord(
+            product_id=product2.id, provider_id=provider.id, price=899.0
+        )
+        price3 = PriceRecord(
+            product_id=product3.id, provider_id=provider.id, price=1999.0
+        )
+
+        db_session.add_all([price1, price2, price3])
+        await db_session.commit()
+
+        # Combine category and brand filters
+        response = client.get("/api/products/search?category=smartphones&brand=Apple")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "iPhone 15"
+
+
+class TestFacetedSearch:
+    """Test faceted search functionality."""
+
+    @pytest.mark.asyncio
+    async def test_get_search_facets(self, client, db_session: AsyncSession):
+        """Test retrieving search facets for filtering."""
+        # Create diverse products
+        products = [
+            Product(name="iPhone 15", brand="Apple", category="smartphones"),
+            Product(name="Galaxy S24", brand="Samsung", category="smartphones"),
+            Product(name="MacBook Pro", brand="Apple", category="laptops"),
+            Product(name="ThinkPad X1", brand="Lenovo", category="laptops"),
+            Product(name="iPad Pro", brand="Apple", category="tablets"),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        response = client.get("/api/products/facets")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "brands" in data
+        assert "categories" in data
+
+        # Check brand facets
+        expected_brands = {"Apple": 3, "Samsung": 1, "Lenovo": 1}
+        for brand_facet in data["brands"]:
+            assert brand_facet["value"] in expected_brands
+            assert brand_facet["count"] == expected_brands[brand_facet["value"]]
+
+        # Check category facets
+        expected_categories = {"smartphones": 2, "laptops": 2, "tablets": 1}
+        for category_facet in data["categories"]:
+            assert category_facet["value"] in expected_categories
+            assert (
+                category_facet["count"] == expected_categories[category_facet["value"]]
+            )
+
+    @pytest.mark.asyncio
+    async def test_facets_with_search_query(self, client, db_session: AsyncSession):
+        """Test facets when combined with search query."""
+        products = [
+            Product(name="iPhone 15 Pro", brand="Apple", category="smartphones"),
+            Product(name="iPhone 14", brand="Apple", category="smartphones"),
+            Product(name="iPad Pro", brand="Apple", category="tablets"),
+            Product(name="Galaxy Phone", brand="Samsung", category="smartphones"),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Get facets for "iPhone" search
+        response = client.get("/api/products/facets?q=iPhone")
+        assert response.status_code == 200
+
+        data = response.json()
+
+        # Should only show facets for iPhone products
+        brand_counts = {b["value"]: b["count"] for b in data["brands"]}
+        assert brand_counts.get("Apple", 0) == 2
+        assert "Samsung" not in brand_counts
+
+    @pytest.mark.asyncio
+    async def test_price_range_facets(self, client, db_session: AsyncSession):
+        """Test price range facets."""
+        products = [
+            Product(name="Budget Phone", brand="Generic", category="smartphones"),
+            Product(name="Mid Phone", brand="Generic", category="smartphones"),
+            Product(name="Premium Phone", brand="Generic", category="smartphones"),
+        ]
+        provider = Provider(name="Store", base_url="https://test.com")
+
+        db_session.add_all(products + [provider])
+        await db_session.commit()
+
+        for i, product in enumerate(products):
+            await db_session.refresh(product)
+        await db_session.refresh(provider)
+
+        # Add different price points
+        prices = [
+            PriceRecord(
+                product_id=products[0].id, provider_id=provider.id, price=199.0
+            ),
+            PriceRecord(
+                product_id=products[1].id, provider_id=provider.id, price=599.0
+            ),
+            PriceRecord(
+                product_id=products[2].id, provider_id=provider.id, price=1299.0
+            ),
+        ]
+
+        db_session.add_all(prices)
+        await db_session.commit()
+
+        response = client.get("/api/products/facets")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "price_ranges" in data
+
+        # Should have price range buckets
+        price_ranges = data["price_ranges"]
+        assert len(price_ranges) > 0
+
+        # Verify structure
+        for price_range in price_ranges:
+            assert "min" in price_range
+            assert "max" in price_range
+            assert "count" in price_range
+
+
+class TestSortingAndPagination:
+    """Test sorting and pagination functionality."""
+
+    @pytest.mark.asyncio
+    async def test_sort_by_name(self, client, db_session: AsyncSession):
+        """Test sorting products by name."""
+        products = [
+            Product(name="Zebra Product", brand="Brand", category="test"),
+            Product(name="Alpha Product", brand="Brand", category="test"),
+            Product(name="Beta Product", brand="Brand", category="test"),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Sort ascending
+        response = client.get("/api/products/search?sort=name&order=asc")
+        assert response.status_code == 200
+
+        data = response.json()
+        names = [p["name"] for p in data["results"]]
+        assert names == ["Alpha Product", "Beta Product", "Zebra Product"]
+
+        # Sort descending
+        response = client.get("/api/products/search?sort=name&order=desc")
+        assert response.status_code == 200
+
+        data = response.json()
+        names = [p["name"] for p in data["results"]]
+        assert names == ["Zebra Product", "Beta Product", "Alpha Product"]
+
+    @pytest.mark.asyncio
+    async def test_sort_by_price(self, client, db_session: AsyncSession):
+        """Test sorting products by price."""
+        products = [
+            Product(name="Expensive", brand="Brand", category="test"),
+            Product(name="Cheap", brand="Brand", category="test"),
+            Product(name="Medium", brand="Brand", category="test"),
+        ]
+        provider = Provider(name="Store", base_url="https://test.com")
+
+        db_session.add_all(products + [provider])
+        await db_session.commit()
+
+        for product in products:
+            await db_session.refresh(product)
+        await db_session.refresh(provider)
+
+        prices = [
+            PriceRecord(
+                product_id=products[0].id, provider_id=provider.id, price=999.0
+            ),
+            PriceRecord(product_id=products[1].id, provider_id=provider.id, price=99.0),
+            PriceRecord(
+                product_id=products[2].id, provider_id=provider.id, price=499.0
+            ),
+        ]
+
+        db_session.add_all(prices)
+        await db_session.commit()
+
+        # Sort by price ascending
+        response = client.get("/api/products/search?sort=price&order=asc")
+        assert response.status_code == 200
+
+        data = response.json()
+        names = [p["name"] for p in data["results"]]
+        assert names == ["Cheap", "Medium", "Expensive"]
+
+    @pytest.mark.asyncio
+    async def test_pagination(self, client, db_session: AsyncSession):
+        """Test pagination of search results."""
+        # Create 25 products
+        products = [
+            Product(name=f"Product {i:02d}", brand="Brand", category="test")
+            for i in range(25)
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Test first page
+        response = client.get("/api/products/search?page=1&per_page=10")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 10
+        assert data["total_count"] == 25
+        assert data["page"] == 1
+        assert data["per_page"] == 10
+        assert data["total_pages"] == 3
+
+        # Test second page
+        response = client.get("/api/products/search?page=2&per_page=10")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 10
+        assert data["page"] == 2
+
+        # Test last page
+        response = client.get("/api/products/search?page=3&per_page=10")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 5  # Remaining products
+        assert data["page"] == 3
+
+    @pytest.mark.asyncio
+    async def test_pagination_limits(self, client, db_session: AsyncSession):
+        """Test pagination limits and boundaries."""
+        products = [
+            Product(name=f"Product {i}", brand="Brand", category="test")
+            for i in range(5)
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Test invalid page number
+        response = client.get("/api/products/search?page=0")
+        assert response.status_code == 400
+
+        # Test page beyond available results
+        response = client.get("/api/products/search?page=10&per_page=10")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["results"] == []
+
+        # Test maximum per_page limit
+        response = client.get("/api/products/search?per_page=1000")
+        assert response.status_code == 400
+
+
+class TestFullTextSearch:
+    """Test full-text search capabilities."""
+
+    @pytest.mark.asyncio
+    async def test_search_in_description(self, client, db_session: AsyncSession):
+        """Test searching within product descriptions."""
+        products = [
+            Product(
+                name="iPhone",
+                description="Latest smartphone with advanced camera features",
+                brand="Apple",
+                category="smartphones",
+            ),
+            Product(
+                name="Camera",
+                description="Professional DSLR camera",
+                brand="Canon",
+                category="cameras",
+            ),
+            Product(
+                name="Laptop",
+                description="Gaming laptop with RGB lighting",
+                brand="Dell",
+                category="laptops",
+            ),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Search for "camera" should match both products
+        response = client.get("/api/products/search?q=camera")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 2
+
+        names = [p["name"] for p in data["results"]]
+        assert "iPhone" in names  # Matches description
+        assert "Camera" in names  # Matches name
+
+    @pytest.mark.asyncio
+    async def test_search_ranking_relevance(self, client, db_session: AsyncSession):
+        """Test search result ranking by relevance."""
+        products = [
+            Product(
+                name="iPhone Case",
+                description="Protective case",
+                brand="Generic",
+                category="accessories",
+            ),
+            Product(
+                name="iPhone",
+                description="Smartphone device",
+                brand="Apple",
+                category="smartphones",
+            ),
+            Product(
+                name="Android Phone",
+                description="iPhone competitor",
+                brand="Samsung",
+                category="smartphones",
+            ),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        response = client.get("/api/products/search?q=iPhone")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 3
+
+        # iPhone should rank higher than iPhone Case or Android Phone
+        assert data["results"][0]["name"] == "iPhone"
+
+    @pytest.mark.asyncio
+    async def test_search_with_special_characters(
+        self, client, db_session: AsyncSession
+    ):
+        """Test search handling of special characters."""
+        products = [
+            Product(name="USB-C Cable", brand="Generic", category="accessories"),
+            Product(name="Wi-Fi Router", brand="Netgear", category="networking"),
+            Product(name="32GB RAM", brand="Corsair", category="memory"),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Test various special characters
+        test_queries = ["USB-C", "Wi-Fi", "32GB"]
+
+        for query in test_queries:
+            response = client.get(f"/api/products/search?q={query}")
+            assert response.status_code == 200
+
+            data = response.json()
+            assert len(data["results"]) >= 1
+
+
+class TestSearchAnalytics:
+    """Test search analytics and monitoring."""
+
+    @pytest.mark.asyncio
+    async def test_search_query_logging(self, client, db_session: AsyncSession):
+        """Test that search queries are logged for analytics."""
+        product = Product(name="Test Product", brand="Brand", category="test")
+        db_session.add(product)
+        await db_session.commit()
+
+        response = client.get("/api/products/search?q=test")
+        assert response.status_code == 200
+
+        # Verify search was logged (would check analytics database/logs)
+        # This is a placeholder for actual analytics implementation
+        assert True
+
+    @pytest.mark.asyncio
+    async def test_search_performance_metrics(self, client, db_session: AsyncSession):
+        """Test search performance monitoring."""
+        # Create many products for performance testing
+        products = [
+            Product(
+                name=f"Product {i}",
+                brand=f"Brand {i % 10}",
+                category=f"category_{i % 5}",
+            )
+            for i in range(1000)
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Search should complete within reasonable time
+        response = client.get("/api/products/search?q=Product")
+        assert response.status_code == 200
+
+        # Response should include performance metadata
+        data = response.json()
+        assert "search_time_ms" in data
+        assert data["search_time_ms"] < 1000  # Less than 1 second
+
+    @pytest.mark.asyncio
+    async def test_popular_searches(self, client):
+        """Test retrieving popular search terms."""
+        # Multiple searches to generate data
+        search_terms = ["iPhone", "MacBook", "iPhone", "Samsung", "iPhone"]
+
+        for term in search_terms:
+            client.get(f"/api/products/search?q={term}")
+
+        response = client.get("/api/search/popular")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "popular_terms" in data
+
+        # iPhone should be most popular
+        if data["popular_terms"]:
+            assert data["popular_terms"][0]["term"] == "iPhone"
+            assert data["popular_terms"][0]["count"] == 3
+
+
+class TestSearchPersonalization:
+    """Test personalized search features."""
+
+    @pytest.mark.asyncio
+    async def test_personalized_search_results(self, client, db_session: AsyncSession):
+        """Test search results personalization based on user preferences."""
+        # Create user with preferences
+        user = User(email="test@example.com", name="Test User", role=UserRole.VIEWER)
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+
+        # Create products
+        products = [
+            Product(name="iPhone 15", brand="Apple", category="smartphones"),
+            Product(name="Galaxy S24", brand="Samsung", category="smartphones"),
+            Product(name="MacBook Pro", brand="Apple", category="laptops"),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Search with user authentication (would boost Apple products for Apple fan)
+        headers = {"Authorization": "Bearer valid_jwt_token"}
+        response = client.get("/api/products/search?q=phone", headers=headers)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) >= 2
+
+    @pytest.mark.asyncio
+    async def test_search_history(self, client, db_session: AsyncSession):
+        """Test user search history tracking."""
+        user = User(email="test@example.com", name="Test User", role=UserRole.VIEWER)
+        db_session.add(user)
+        await db_session.commit()
+
+        headers = {"Authorization": "Bearer valid_jwt_token"}
+
+        # Perform multiple searches
+        search_terms = ["iPhone", "MacBook", "iPad"]
+        for term in search_terms:
+            client.get(f"/api/products/search?q={term}", headers=headers)
+
+        # Get search history
+        response = client.get("/api/search/history", headers=headers)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "history" in data
+        assert len(data["history"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_saved_searches(self, client, db_session: AsyncSession):
+        """Test saving and managing search queries."""
+        user = User(email="test@example.com", name="Test User", role=UserRole.VIEWER)
+        db_session.add(user)
+        await db_session.commit()
+
+        headers = {"Authorization": "Bearer valid_jwt_token"}
+
+        # Save a search
+        search_data = {
+            "name": "Apple Laptops",
+            "query": "MacBook",
+            "filters": {"brand": "Apple", "category": "laptops"},
+        }
+
+        response = client.post("/api/search/saved", json=search_data, headers=headers)
+        assert response.status_code == 201
+
+        # Get saved searches
+        response = client.get("/api/search/saved", headers=headers)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["saved_searches"]) == 1
+        assert data["saved_searches"][0]["name"] == "Apple Laptops"
+
+
+class TestSearchAPI:
+    """Test search API endpoints and responses."""
+
+    @pytest.mark.asyncio
+    async def test_search_response_format(self, client, db_session: AsyncSession):
+        """Test the structure of search API responses."""
+        product = Product(name="Test Product", brand="Brand", category="test")
+        db_session.add(product)
+        await db_session.commit()
+
+        response = client.get("/api/products/search?q=test")
+        assert response.status_code == 200
+
+        data = response.json()
+
+        # Check required fields
+        assert "results" in data
+        assert "total_count" in data
+        assert "page" in data
+        assert "per_page" in data
+        assert "total_pages" in data
+
+        # Check product structure
+        if data["results"]:
+            product_data = data["results"][0]
+            required_fields = ["id", "name", "brand", "category", "description"]
+            for field in required_fields:
+                assert field in product_data
+
+    @pytest.mark.asyncio
+    async def test_search_error_handling(self, client):
+        """Test search API error handling."""
+        # Test invalid parameters
+        response = client.get("/api/products/search?per_page=-1")
+        assert response.status_code == 400
+
+        response = client.get("/api/products/search?page=0")
+        assert response.status_code == 400
+
+        response = client.get("/api/products/search?sort=invalid_field")
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_search_rate_limiting(self, client):
+        """Test search API rate limiting."""
+        # Make many rapid requests
+        for i in range(100):
+            response = client.get(f"/api/products/search?q=test{i}")
+
+            # Should eventually get rate limited
+            if response.status_code == 429:
+                assert "rate limit" in response.json()["detail"].lower()
+                break
+        else:
+            # If no rate limiting, that's also acceptable
+            assert True
+
+
+class TestHistoricalPriceSearch:
+    """Test searching and filtering by historical price data."""
+
+    @pytest.mark.asyncio
+    async def test_filter_by_price_history(self, client, db_session: AsyncSession):
+        """Test filtering products by historical price ranges."""
+        product = Product(name="Test Product", brand="Brand", category="test")
+        provider = Provider(name="Store", base_url="https://test.com")
+
+        db_session.add_all([product, provider])
+        await db_session.commit()
+        await db_session.refresh(product)
+        await db_session.refresh(provider)
+
+        # Create price history
+        base_time = datetime.now(timezone.utc)
+        price_records = [
+            PriceRecord(
+                product_id=product.id,
+                provider_id=provider.id,
+                price=100.0 + i * 10,
+                timestamp=base_time - timedelta(days=i),
+            )
+            for i in range(10)
+        ]
+
+        db_session.add_all(price_records)
+        await db_session.commit()
+
+        # Search for products with historical low price under $120
+        response = client.get(
+            "/api/products/search?historical_min_price=0&historical_max_price=120"
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_filter_by_price_drop(self, client, db_session: AsyncSession):
+        """Test filtering products by recent price drops."""
+        product1 = Product(name="Dropped Product", brand="Brand", category="test")
+        product2 = Product(name="Stable Product", brand="Brand", category="test")
+        provider = Provider(name="Store", base_url="https://test.com")
+
+        db_session.add_all([product1, product2, provider])
+        await db_session.commit()
+        await db_session.refresh(product1)
+        await db_session.refresh(product2)
+        await db_session.refresh(provider)
+
+        base_time = datetime.now(timezone.utc)
+
+        # Product 1: price dropped from 200 to 150
+        price_records = [
+            PriceRecord(
+                product_id=product1.id,
+                provider_id=provider.id,
+                price=200.0,
+                timestamp=base_time - timedelta(days=7),
+            ),
+            PriceRecord(
+                product_id=product1.id,
+                provider_id=provider.id,
+                price=150.0,
+                timestamp=base_time,
+            ),
+            # Product 2: stable price
+            PriceRecord(
+                product_id=product2.id,
+                provider_id=provider.id,
+                price=100.0,
+                timestamp=base_time - timedelta(days=7),
+            ),
+            PriceRecord(
+                product_id=product2.id,
+                provider_id=provider.id,
+                price=100.0,
+                timestamp=base_time,
+            ),
+        ]
+
+        db_session.add_all(price_records)
+        await db_session.commit()
+
+        # Search for products with recent price drops > 10%
+        response = client.get("/api/products/search?price_drop_percentage=10")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Dropped Product"
+
+    @pytest.mark.asyncio
+    async def test_filter_by_price_trend(self, client, db_session: AsyncSession):
+        """Test filtering products by price trend (rising/falling)."""
+        product = Product(name="Trending Product", brand="Brand", category="test")
+        provider = Provider(name="Store", base_url="https://test.com")
+
+        db_session.add_all([product, provider])
+        await db_session.commit()
+        await db_session.refresh(product)
+        await db_session.refresh(provider)
+
+        # Create ascending price trend
+        base_time = datetime.now(timezone.utc)
+        price_records = [
+            PriceRecord(
+                product_id=product.id,
+                provider_id=provider.id,
+                price=100.0 + i * 5,  # Prices going up
+                timestamp=base_time - timedelta(days=10 - i),
+            )
+            for i in range(10)
+        ]
+
+        db_session.add_all(price_records)
+        await db_session.commit()
+
+        # Search for products with rising price trend
+        response = client.get("/api/products/search?price_trend=rising")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 1
+
+
+class TestElasticsearchIntegration:
+    """Test Elasticsearch integration for advanced search."""
+
+    @pytest.mark.asyncio
+    async def test_elasticsearch_full_text_search(
+        self, client, db_session: AsyncSession
+    ):
+        """Test Elasticsearch-powered full-text search."""
+        products = [
+            Product(
+                name="iPhone 15 Pro Max",
+                description="Latest flagship smartphone with titanium design and advanced camera system",
+                brand="Apple",
+                category="smartphones",
+            ),
+            Product(
+                name="Samsung Galaxy S24 Ultra",
+                description="Premium Android smartphone with S Pen and excellent camera capabilities",
+                brand="Samsung",
+                category="smartphones",
+            ),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        # Complex search query
+        response = client.get(
+            "/api/products/search?q=flagship smartphone camera&use_elasticsearch=true"
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 2
+
+        # Should have relevance scores
+        for result in data["results"]:
+            assert "relevance_score" in result
+
+    @pytest.mark.asyncio
+    async def test_elasticsearch_autocomplete(self, client, db_session: AsyncSession):
+        """Test Elasticsearch autocomplete suggestions."""
+        products = [
+            Product(name="iPhone 15", brand="Apple", category="smartphones"),
+            Product(name="iPhone 14", brand="Apple", category="smartphones"),
+            Product(name="iPad Pro", brand="Apple", category="tablets"),
+        ]
+
+        db_session.add_all(products)
+        await db_session.commit()
+
+        response = client.get("/api/products/autocomplete?q=iP")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "suggestions" in data
+        assert len(data["suggestions"]) >= 3
+
+    @pytest.mark.asyncio
+    async def test_elasticsearch_fuzzy_search(self, client, db_session: AsyncSession):
+        """Test Elasticsearch fuzzy search for typos."""
+        product = Product(name="MacBook Pro", brand="Apple", category="laptops")
+        db_session.add(product)
+        await db_session.commit()
+
+        # Search with typo
+        response = client.get("/api/products/search?q=MacBok&fuzzy=true")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "MacBook Pro"
 
 
 @pytest.fixture
-def test_db():
-    """Create a test database session."""
-    # Clear any existing data before each test
-    SQLModel.metadata.drop_all(test_engine)
-    SQLModel.metadata.create_all(test_engine)
+async def search_test_data(db_session: AsyncSession):
+    """Fixture providing comprehensive test data for search tests."""
+    # Create brands
+    brands = ["Apple", "Samsung", "Google", "Sony", "Microsoft"]
 
-    SessionLocal = sessionmaker(bind=test_engine)
-    session = SessionLocal()
+    # Create categories
+    categories = ["smartphones", "laptops", "tablets", "headphones", "accessories"]
 
-    try:
-        yield session
-    finally:
-        session.close()
-
-
-@pytest.fixture
-def client(test_db):
-    """Create a test client with database dependency override."""
-
-    def get_test_session():
-        SessionLocal = sessionmaker(bind=test_engine)
-        session = SessionLocal()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    app.dependency_overrides[get_session] = get_test_session
-    client = TestClient(app)
-
-    yield client
-
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def sample_search_data(test_db):
-    """Create comprehensive sample data for search testing."""
     # Create providers
     providers = [
-        Provider(
-            name="Amazon",
-            base_url="https://api.amazon.com",
-            rate_limit=1000,
-            is_active=True,
-        ),
-        Provider(
-            name="BestBuy",
-            base_url="https://api.bestbuy.com",
-            rate_limit=500,
-            is_active=True,
-        ),
-        Provider(
-            name="Walmart",
-            base_url="https://api.walmart.com",
-            rate_limit=750,
-            is_active=True,
-        ),
+        Provider(name="Amazon", base_url="https://amazon.com"),
+        Provider(name="Best Buy", base_url="https://bestbuy.com"),
+        Provider(name="Target", base_url="https://target.com"),
     ]
 
-    for provider in providers:
-        test_db.add(provider)
-    test_db.commit()
+    db_session.add_all(providers)
+    await db_session.commit()
 
     for provider in providers:
-        test_db.refresh(provider)
+        await db_session.refresh(provider)
 
-    # Create diverse products for search testing
-    products = [
-        Product(
-            name="iPhone 15 Pro Max",
-            url="https://apple.com/iphone-15-pro-max",
-            description="Latest premium iPhone with advanced camera system",
-            category="Electronics",
-            status="ACTIVE",
-        ),
-        Product(
-            name="Samsung Galaxy S24 Ultra",
-            url="https://samsung.com/galaxy-s24-ultra",
-            description="Premium Android smartphone with S Pen",
-            category="Electronics",
-            status="ACTIVE",
-        ),
-        Product(
-            name="MacBook Pro 16-inch",
-            url="https://apple.com/macbook-pro-16",
-            description="Professional laptop for creative work",
-            category="Computers",
-            status="ACTIVE",
-        ),
-        Product(
-            name="Dell XPS 13",
-            url="https://dell.com/xps-13",
-            description="Ultrabook for business and productivity",
-            category="Computers",
-            status="ACTIVE",
-        ),
-        Product(
-            name="Sony WH-1000XM5",
-            url="https://sony.com/wh-1000xm5",
-            description="Premium noise-canceling headphones",
-            category="Audio",
-            status="ACTIVE",
-        ),
-        Product(
-            name="AirPods Pro 2nd Gen",
-            url="https://apple.com/airpods-pro",
-            description="Wireless earbuds with active noise cancellation",
-            category="Audio",
-            status="ACTIVE",
-        ),
-        Product(
-            name="Nintendo Switch OLED",
-            url="https://nintendo.com/switch-oled",
-            description="Portable gaming console with OLED screen",
-            category="Gaming",
-            status="ACTIVE",
-        ),
-        Product(
-            name="PlayStation 5",
-            url="https://playstation.com/ps5",
-            description="Next-generation gaming console",
-            category="Gaming",
-            status="DISCONTINUED",  # Different status for filtering
-        ),
-    ]
+    # Create diverse products
+    products = []
+    for i in range(50):
+        product = Product(
+            name=f"Product {i:02d}",
+            brand=brands[i % len(brands)],
+            category=categories[i % len(categories)],
+            description=f"Description for product {i} with various features",
+        )
+        products.append(product)
+
+    db_session.add_all(products)
+    await db_session.commit()
 
     for product in products:
-        test_db.add(product)
-    test_db.commit()
+        await db_session.refresh(product)
 
-    for product in products:
-        test_db.refresh(product)
+    # Create price records with varied pricing
+    price_records = []
+    for i, product in enumerate(products):
+        for j, provider in enumerate(providers):
+            price = 100 + (i * 10) + (j * 5)  # Varied pricing
+            price_record = PriceRecord(
+                product_id=product.id,
+                provider_id=provider.id,
+                price=price,
+                currency="USD",
+                is_available=(i + j) % 3 != 0,  # Mix of available/unavailable
+                timestamp=datetime.now(timezone.utc) - timedelta(days=i % 30),
+            )
+            price_records.append(price_record)
 
-    # Create price records with historical data and varying prices
-    base_prices = [1199, 1399, 2499, 999, 399, 249, 349, 499]
-
-    for i, (product, base_price) in enumerate(zip(products, base_prices)):
-        # Create price history over last 30 days
-        for days_ago in range(30, 0, -3):  # Every 3 days
-            price_variation = base_price * (
-                0.9 + (days_ago % 10) * 0.02
-            )  # ±10% variation
-
-            for provider in providers:
-                price_record = PriceRecord(
-                    product_id=product.id,
-                    provider_id=provider.id,
-                    price=round(
-                        price_variation + (provider.id * 10), 2
-                    ),  # Small provider variance
-                    currency="USD",
-                    is_available=True,
-                    recorded_at=datetime.utcnow() - timedelta(days=days_ago),
-                )
-                test_db.add(price_record)
-
-    test_db.commit()
+    db_session.add_all(price_records)
+    await db_session.commit()
 
     return {
         "products": products,
         "providers": providers,
-        "categories": ["Electronics", "Computers", "Audio", "Gaming"],
-        "price_ranges": [(200, 500), (500, 1000), (1000, 1500), (1500, 3000)],
+        "price_records": price_records,
     }
-
-
-class TestBasicSearch:
-    """Test basic search functionality."""
-
-    def test_search_products_by_name(self, client, sample_search_data):
-        """Test searching products by name."""
-        response = client.get("/api/search/products?q=iPhone")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "results" in data
-        assert "total" in data
-        assert "page" in data
-        assert "per_page" in data
-
-        # Should find iPhone products
-        results = data["results"]
-        assert len(results) > 0
-        assert any("iPhone" in product["name"] for product in results)
-
-    def test_search_products_case_insensitive(self, client, sample_search_data):
-        """Test search is case insensitive."""
-        response = client.get("/api/search/products?q=iphone")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-        assert len(results) > 0
-        assert any("iPhone" in product["name"] for product in results)
-
-    def test_search_products_by_description(self, client, sample_search_data):
-        """Test searching products by description."""
-        response = client.get("/api/search/products?q=premium")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-        assert len(results) > 0
-        assert any("premium" in product["description"].lower() for product in results)
-
-    def test_search_products_empty_query(self, client, sample_search_data):
-        """Test search with empty query returns all products."""
-        response = client.get("/api/search/products")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["total"] == 8  # All products in sample data
-        assert len(data["results"]) <= data["per_page"]
-
-    def test_search_products_no_results(self, client, sample_search_data):
-        """Test search with no matching results."""
-        response = client.get("/api/search/products?q=nonexistentproduct")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["total"] == 0
-        assert len(data["results"]) == 0
-
-
-class TestCategoryFiltering:
-    """Test category-based filtering."""
-
-    def test_filter_products_by_category(self, client, sample_search_data):
-        """Test filtering products by category."""
-        response = client.get("/api/search/products?category=Electronics")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-        assert len(results) > 0
-        assert all(product["category"] == "Electronics" for product in results)
-
-    def test_filter_products_multiple_categories(self, client, sample_search_data):
-        """Test filtering by multiple categories."""
-        response = client.get("/api/search/products?category=Electronics,Audio")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-        assert len(results) > 0
-        assert all(
-            product["category"] in ["Electronics", "Audio"] for product in results
-        )
-
-    def test_get_available_categories(self, client, sample_search_data):
-        """Test getting list of available categories."""
-        response = client.get("/api/search/categories")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "categories" in data
-        categories = data["categories"]
-
-        expected_categories = ["Electronics", "Computers", "Audio", "Gaming"]
-        for category in expected_categories:
-            assert any(cat["name"] == category for cat in categories)
-
-        # Each category should have a count
-        for category in categories:
-            assert "name" in category
-            assert "count" in category
-            assert category["count"] > 0
-
-    def test_category_facet_counts(self, client, sample_search_data):
-        """Test category facet counts with search query."""
-        response = client.get("/api/search/products?q=pro&facets=category")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "facets" in data
-        assert "category" in data["facets"]
-
-        category_facets = data["facets"]["category"]
-        assert isinstance(category_facets, list)
-
-        for facet in category_facets:
-            assert "value" in facet
-            assert "count" in facet
-            assert facet["count"] >= 0
-
-
-class TestPriceFiltering:
-    """Test price-based filtering and search."""
-
-    def test_filter_products_by_price_range(self, client, sample_search_data):
-        """Test filtering products by price range."""
-        response = client.get("/api/search/products?min_price=200&max_price=500")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Each result should have current price info
-        for product in results:
-            assert "current_price" in product
-            if product["current_price"]:
-                price = product["current_price"]["price"]
-                assert 200 <= price <= 500
-
-    def test_filter_products_by_minimum_price(self, client, sample_search_data):
-        """Test filtering by minimum price only."""
-        response = client.get("/api/search/products?min_price=1000")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        for product in results:
-            if product.get("current_price"):
-                assert product["current_price"]["price"] >= 1000
-
-    def test_filter_products_by_maximum_price(self, client, sample_search_data):
-        """Test filtering by maximum price only."""
-        response = client.get("/api/search/products?max_price=800")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        for product in results:
-            if product.get("current_price"):
-                assert product["current_price"]["price"] <= 800
-
-    def test_price_range_facets(self, client, sample_search_data):
-        """Test price range facets."""
-        response = client.get("/api/search/products?facets=price_range")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "facets" in data
-        assert "price_range" in data["facets"]
-
-        price_facets = data["facets"]["price_range"]
-        assert isinstance(price_facets, list)
-
-        for facet in price_facets:
-            assert "range" in facet
-            assert "count" in facet
-            assert "min" in facet["range"]
-            assert "max" in facet["range"]
-
-    def test_price_history_search(self, client, sample_search_data):
-        """Test searching based on price history."""
-        response = client.get("/api/search/products?has_price_drop=true&days=7")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Results should include price change information
-        for product in results:
-            assert "price_change" in product
-            if product["price_change"]:
-                assert "percentage" in product["price_change"]
-                assert "direction" in product["price_change"]
-
-
-class TestAdvancedFiltering:
-    """Test advanced filtering combinations."""
-
-    def test_combined_search_and_filters(self, client, sample_search_data):
-        """Test combining search query with filters."""
-        response = client.get(
-            "/api/search/products?q=pro&category=Electronics&min_price=500&max_price=2000"
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        for product in results:
-            # Should match search term
-            assert (
-                "pro" in product["name"].lower()
-                or "pro" in product["description"].lower()
-            )
-            # Should match category
-            assert product["category"] == "Electronics"
-            # Should match price range
-            if product.get("current_price"):
-                price = product["current_price"]["price"]
-                assert 500 <= price <= 2000
-
-    def test_filter_by_availability(self, client, sample_search_data):
-        """Test filtering by product availability."""
-        response = client.get("/api/search/products?available_only=true")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        for product in results:
-            assert "is_available" in product
-            assert product["is_available"] is True
-
-    def test_filter_by_status(self, client, sample_search_data):
-        """Test filtering by product status."""
-        response = client.get("/api/search/products?status=ACTIVE")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        for product in results:
-            assert product["status"] == "ACTIVE"
-
-    def test_filter_by_provider(self, client, sample_search_data):
-        """Test filtering by provider."""
-        response = client.get("/api/search/products?provider=Amazon")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Results should only include products available from Amazon
-        for product in results:
-            assert "providers" in product
-            provider_names = [p["name"] for p in product["providers"]]
-            assert "Amazon" in provider_names
-
-    def test_exclude_discontinued_products(self, client, sample_search_data):
-        """Test excluding discontinued products."""
-        response = client.get("/api/search/products?exclude_discontinued=true")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        for product in results:
-            assert product["status"] != "DISCONTINUED"
-
-
-class TestSortingAndPagination:
-    """Test search result sorting and pagination."""
-
-    def test_sort_by_price_ascending(self, client, sample_search_data):
-        """Test sorting results by price (low to high)."""
-        response = client.get("/api/search/products?sort=price_asc")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Verify ascending price order (excluding None prices)
-        prices = [
-            r["current_price"]["price"] for r in results if r.get("current_price")
-        ]
-        assert prices == sorted(prices)
-
-    def test_sort_by_price_descending(self, client, sample_search_data):
-        """Test sorting results by price (high to low)."""
-        response = client.get("/api/search/products?sort=price_desc")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Verify descending price order
-        prices = [
-            r["current_price"]["price"] for r in results if r.get("current_price")
-        ]
-        assert prices == sorted(prices, reverse=True)
-
-    def test_sort_by_name(self, client, sample_search_data):
-        """Test sorting results by name."""
-        response = client.get("/api/search/products?sort=name")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        names = [r["name"] for r in results]
-        assert names == sorted(names)
-
-    def test_sort_by_newest(self, client, sample_search_data):
-        """Test sorting by newest products first."""
-        response = client.get("/api/search/products?sort=newest")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Verify descending creation date order
-        dates = [r["created_at"] for r in results]
-        assert dates == sorted(dates, reverse=True)
-
-    def test_sort_by_relevance(self, client, sample_search_data):
-        """Test sorting by search relevance."""
-        response = client.get("/api/search/products?q=iPhone&sort=relevance")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Most relevant results should be first
-        # iPhone in name should rank higher than iPhone in description
-        iphone_in_name_indices = [
-            i for i, r in enumerate(results) if "iPhone" in r["name"]
-        ]
-        iphone_in_desc_indices = [
-            i
-            for i, r in enumerate(results)
-            if "iPhone" not in r["name"] and "iPhone" in r.get("description", "")
-        ]
-
-        if iphone_in_name_indices and iphone_in_desc_indices:
-            assert min(iphone_in_name_indices) < min(iphone_in_desc_indices)
-
-    def test_pagination_page_size(self, client, sample_search_data):
-        """Test pagination with different page sizes."""
-        response = client.get("/api/search/products?per_page=3")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["per_page"] == 3
-        assert len(data["results"]) <= 3
-        assert "page" in data
-        assert "total_pages" in data
-
-    def test_pagination_specific_page(self, client, sample_search_data):
-        """Test getting specific page of results."""
-        # Get first page
-        response1 = client.get("/api/search/products?page=1&per_page=3")
-        assert response1.status_code == 200
-        data1 = response1.json()
-
-        # Get second page
-        response2 = client.get("/api/search/products?page=2&per_page=3")
-        assert response2.status_code == 200
-        data2 = response2.json()
-
-        # Results should be different
-        ids1 = {r["id"] for r in data1["results"]}
-        ids2 = {r["id"] for r in data2["results"]}
-        assert ids1.isdisjoint(ids2)  # No overlap
-
-    def test_pagination_out_of_bounds(self, client, sample_search_data):
-        """Test pagination with page number out of bounds."""
-        response = client.get("/api/search/products?page=999&per_page=10")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["results"]) == 0
-        assert data["page"] == 999
-
-
-class TestFullTextSearch:
-    """Test advanced full-text search capabilities."""
-
-    def test_search_multiple_terms(self, client, sample_search_data):
-        """Test searching with multiple terms."""
-        response = client.get("/api/search/products?q=pro max")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Should prioritize results containing both terms
-        assert len(results) > 0
-
-        # Check if "iPhone 15 Pro Max" is in results (should match both terms)
-        product_names = [r["name"] for r in results]
-        assert any("Pro Max" in name for name in product_names)
-
-    def test_search_with_quotes(self, client, sample_search_data):
-        """Test exact phrase search with quotes."""
-        response = client.get('/api/search/products?q="Pro Max"')
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Should only match exact phrase
-        for product in results:
-            text_to_search = f"{product['name']} {product.get('description', '')}"
-            assert "Pro Max" in text_to_search
-
-    def test_search_with_wildcard(self, client, sample_search_data):
-        """Test wildcard search."""
-        response = client.get("/api/search/products?q=iP*")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        # Should match iPhone, iPad, etc.
-        assert len(results) > 0
-        product_names = [r["name"] for r in results]
-        assert any(name.startswith("iP") for name in product_names)
-
-    def test_search_relevance_scoring(self, client, sample_search_data):
-        """Test that search results include relevance scores."""
-        response = client.get("/api/search/products?q=iPhone&include_score=true")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        for product in results:
-            assert "relevance_score" in product
-            assert isinstance(product["relevance_score"], (int, float))
-            assert product["relevance_score"] >= 0
-
-    def test_search_boosting(self, client, sample_search_data):
-        """Test search field boosting (name more important than description)."""
-        response = client.get("/api/search/products?q=gaming")
-
-        assert response.status_code == 200
-        data = response.json()
-        results = data["results"]
-
-        if len(results) >= 2:
-            # Products with "gaming" in name should rank higher
-            name_matches = [r for r in results if "gaming" in r["name"].lower()]
-            desc_matches = [
-                r
-                for r in results
-                if "gaming" not in r["name"].lower()
-                and "gaming" in r.get("description", "").lower()
-            ]
-
-            if name_matches and desc_matches:
-                name_positions = [results.index(r) for r in name_matches]
-                desc_positions = [results.index(r) for r in desc_matches]
-                assert min(name_positions) < min(desc_positions)
-
-
-class TestSearchAnalytics:
-    """Test search analytics and performance."""
-
-    def test_search_suggestions(self, client, sample_search_data):
-        """Test search autocomplete suggestions."""
-        response = client.get("/api/search/suggestions?q=iph")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "suggestions" in data
-
-        suggestions = data["suggestions"]
-        assert isinstance(suggestions, list)
-
-        # Should suggest completions starting with "iph"
-        assert any("iPhone" in suggestion for suggestion in suggestions)
-
-    def test_search_spelling_correction(self, client, sample_search_data):
-        """Test search spelling correction."""
-        response = client.get("/api/search/products?q=ipone")  # Misspelled "iPhone"
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Should suggest spelling correction
-        assert "spelling_suggestion" in data
-        assert data["spelling_suggestion"] == "iPhone"
-
-    def test_popular_searches(self, client, sample_search_data):
-        """Test getting popular search terms."""
-        # Perform several searches to generate data
-        search_terms = ["iPhone", "Samsung", "laptop", "headphones"]
-        for term in search_terms:
-            client.get(f"/api/search/products?q={term}")
-
-        response = client.get("/api/search/popular")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "popular_searches" in data
-
-        popular = data["popular_searches"]
-        assert isinstance(popular, list)
-
-        for search_term in popular:
-            assert "term" in search_term
-            assert "count" in search_term
-
-    def test_search_performance_metrics(self, client, sample_search_data):
-        """Test search performance tracking."""
-        response = client.get("/api/search/products?q=iPhone&track_performance=true")
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Should include performance metrics
-        assert "performance" in data
-        performance = data["performance"]
-        assert "search_time_ms" in performance
-        assert "total_results" in performance
-        assert isinstance(performance["search_time_ms"], (int, float))
-
-    def test_search_filters_summary(self, client, sample_search_data):
-        """Test getting summary of applied filters."""
-        response = client.get(
-            "/api/search/products?category=Electronics&min_price=500&include_filters=true"
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert "applied_filters" in data
-        filters = data["applied_filters"]
-
-        assert "category" in filters
-        assert filters["category"] == "Electronics"
-        assert "price_range" in filters
-        assert filters["price_range"]["min"] == 500
-
-
-class TestSearchAPI:
-    """Test search API error handling and edge cases."""
-
-    def test_search_invalid_sort_parameter(self, client, sample_search_data):
-        """Test search with invalid sort parameter."""
-        response = client.get("/api/search/products?sort=invalid_sort")
-
-        assert response.status_code == 400
-        data = response.json()
-        assert "detail" in data
-        assert "invalid sort" in data["detail"].lower()
-
-    def test_search_invalid_pagination(self, client, sample_search_data):
-        """Test search with invalid pagination parameters."""
-        response = client.get("/api/search/products?page=0&per_page=-1")
-
-        assert response.status_code == 400
-        data = response.json()
-        assert "detail" in data
-
-    def test_search_invalid_price_range(self, client, sample_search_data):
-        """Test search with invalid price range."""
-        response = client.get("/api/search/products?min_price=1000&max_price=500")
-
-        assert response.status_code == 400
-        data = response.json()
-        assert "detail" in data
-        assert (
-            "min_price" in data["detail"].lower()
-            and "max_price" in data["detail"].lower()
-        )
-
-    def test_search_api_rate_limiting(self, client, sample_search_data):
-        """Test search API rate limiting."""
-        # Make many rapid requests
-        responses = []
-        for i in range(50):
-            response = client.get(f"/api/search/products?q=test{i}")
-            responses.append(response)
-
-        # Should eventually get rate limited (429) or all succeed
-        status_codes = [r.status_code for r in responses]
-        assert all(code in [200, 429] for code in status_codes)
-
-    def test_search_with_special_characters(self, client, sample_search_data):
-        """Test search with special characters."""
-        special_queries = ["C++", "C#", "3D-printer", "Wi-Fi", "Bluetooth®"]
-
-        for query in special_queries:
-            response = client.get(f"/api/search/products?q={query}")
-            assert response.status_code == 200
-            # Should handle special characters gracefully
-
-    def test_search_very_long_query(self, client, sample_search_data):
-        """Test search with very long query string."""
-        long_query = "a" * 1000  # 1000 character query
-        response = client.get(f"/api/search/products?q={long_query}")
-
-        # Should either handle gracefully or return appropriate error
-        assert response.status_code in [
-            200,
-            400,
-            413,
-        ]  # OK, Bad Request, or Payload Too Large

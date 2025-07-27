@@ -54,7 +54,18 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 @pytest.fixture
 def client():
     """Test client for FastAPI application."""
-    return TestClient(app)
+    from app.database import get_async_session
+
+    async def get_test_session():
+        async with TestAsyncSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_async_session] = get_test_session
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
