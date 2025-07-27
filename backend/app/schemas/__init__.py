@@ -7,7 +7,13 @@ from app.models import AlertType
 
 
 class ProductCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=2, max_length=200)
+    url: Optional[str] = Field(None, max_length=2048)
+    sku: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = Field(None, max_length=1000)
+    category: Optional[str] = Field(None, max_length=100)
+    brand: Optional[str] = Field(None, max_length=100)
+    image_url: Optional[str] = Field(None, max_length=2048)
 
 
 class ProviderCreate(BaseModel):
@@ -66,20 +72,26 @@ class UserPreferencesCreate(BaseModel):
 
     user_id: int
     default_currency: str = Field(default="USD", max_length=3)
-    timezone: str = Field(default="UTC", max_length=50)
+    user_timezone: str = Field(default="UTC", max_length=50)
     email_notifications: bool = Field(default=True)
+    push_notifications: bool = Field(default=False)
     webhook_url: Optional[str] = Field(default=None, max_length=2048)
     items_per_page: int = Field(default=20, ge=10, le=100)
+    chart_type: str = Field(default="line", max_length=50)
+    default_time_range: str = Field(default="7d", max_length=10)
 
 
 class UserPreferencesUpdate(BaseModel):
     """Schema for updating user preferences."""
 
     default_currency: Optional[str] = Field(None, max_length=3)
-    timezone: Optional[str] = Field(None, max_length=50)
+    user_timezone: Optional[str] = Field(None, max_length=50)
     email_notifications: Optional[bool] = None
+    push_notifications: Optional[bool] = None
     webhook_url: Optional[str] = Field(None, max_length=2048)
     items_per_page: Optional[int] = Field(None, ge=10, le=100)
+    chart_type: Optional[str] = Field(None, max_length=50)
+    default_time_range: Optional[str] = Field(None, max_length=10)
 
 
 class UserPreferencesResponse(BaseModel):
@@ -88,10 +100,13 @@ class UserPreferencesResponse(BaseModel):
     id: int
     user_id: int
     default_currency: str
-    timezone: str
+    user_timezone: str
     email_notifications: bool
+    push_notifications: bool
     webhook_url: Optional[str]
     items_per_page: int
+    chart_type: str
+    default_time_range: str
     created_at: datetime
     updated_at: datetime
 

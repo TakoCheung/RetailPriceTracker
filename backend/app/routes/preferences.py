@@ -52,10 +52,13 @@ def create_user_preferences(
     db_preferences = UserPreference(
         user_id=preferences_data.user_id,
         default_currency=preferences_data.default_currency,
-        timezone=preferences_data.timezone,
+        user_timezone=preferences_data.user_timezone,
         email_notifications=preferences_data.email_notifications,
+        push_notifications=preferences_data.push_notifications,
         webhook_url=preferences_data.webhook_url,
         items_per_page=preferences_data.items_per_page,
+        chart_type=preferences_data.chart_type,
+        default_time_range=preferences_data.default_time_range,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
