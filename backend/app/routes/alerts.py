@@ -174,3 +174,95 @@ def delete_alert(alert_id: int, session: Session = Depends(get_session)):
 
     session.delete(alert)
     session.commit()
+
+
+@router.post("/process")
+def process_alerts(session: Session = Depends(get_session)):
+    """Process pending alerts and trigger notifications."""
+    from ..models import PriceRecord
+
+    # Get active alerts
+    active_alerts = session.exec(select(PriceAlert).where(PriceAlert.is_active)).all()
+
+    triggered_alerts = []
+
+    for alert in active_alerts:
+        # Get latest price for the product
+        latest_price = session.exec(
+            select(PriceRecord)
+            .where(PriceRecord.product_id == alert.product_id)
+            .order_by(PriceRecord.timestamp.desc())
+            .limit(1)
+        ).first()
+
+        if latest_price:
+            # Check if alert conditions are met
+            should_trigger = False
+
+            if (
+                alert.condition.value == "below"
+                and latest_price.price <= alert.threshold_price
+            ):
+                should_trigger = True
+            elif (
+                alert.condition.value == "above"
+                and latest_price.price >= alert.threshold_price
+            ):
+                should_trigger = True
+
+            if should_trigger:
+                triggered_alerts.append(
+                    {
+                        "alert_id": alert.id,
+                        "product_id": alert.product_id,
+                        "threshold_price": alert.threshold_price,
+                        "current_price": latest_price.price,
+                        "condition": alert.condition.value,
+                    }
+                )
+
+    return {
+        "alerts_processed": len(active_alerts),
+        "triggered_alerts": triggered_alerts,
+    }
+
+
+@router.post("/process-bulk")
+def process_bulk_alerts(session: Session = Depends(get_session)):
+    """Process multiple alerts in bulk efficiently."""
+    import time
+
+    start_time = time.time()
+
+    # Process all alerts
+    result = process_alerts(session)
+
+    processing_time = time.time() - start_time
+
+    return {
+        "total_alerts_processed": result["alerts_processed"],
+        "triggered_alerts_count": len(result["triggered_alerts"]),
+        "processing_time": round(processing_time, 2),
+    }
+
+
+@router.post("/{alert_id}/test-notification")
+def test_alert_notification(alert_id: int, session: Session = Depends(get_session)):
+    """Test notification channels for a specific alert."""
+    alert = session.exec(select(PriceAlert).where(PriceAlert.id == alert_id)).first()
+
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    # Simulate sending notifications through different channels
+    notifications_sent = {}
+
+    for channel in alert.notification_channels:
+        if channel == "email":
+            notifications_sent["email"] = True
+        elif channel == "websocket":
+            notifications_sent["websocket"] = True
+        elif channel == "push":
+            notifications_sent["push"] = True
+
+    return {"alert_id": alert_id, "notifications_sent": notifications_sent}

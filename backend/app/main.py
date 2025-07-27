@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 
 from .database import init_db
 from .routes import (
@@ -8,6 +8,7 @@ from .routes import (
     analytics,
     auth,
     monitoring,
+    notifications,
     preferences,
     price_records,
     products,
@@ -15,7 +16,7 @@ from .routes import (
     search,
     users,
 )
-from .utils import websocket
+from .utils.websocket import websocket_endpoint
 
 app = FastAPI(title="Retail Price Tracker", version="1.0.0")
 
@@ -42,9 +43,15 @@ app.include_router(preferences.router, prefix="/api/preferences", tags=["prefere
 app.include_router(analytics.router, prefix="/api", tags=["analytics"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(monitoring.router, tags=["monitoring"])
+app.include_router(notifications.router, tags=["notifications"])
 app.include_router(auth.router)
 
-app.add_api_websocket_route("/ws", websocket.websocket_endpoint)
+
+# Add WebSocket route
+@app.websocket("/ws")
+async def websocket_route(websocket: WebSocket, client_id: str = None):
+    """WebSocket endpoint for real-time price updates."""
+    await websocket_endpoint(websocket, client_id)
 
 
 @app.on_event("startup")
