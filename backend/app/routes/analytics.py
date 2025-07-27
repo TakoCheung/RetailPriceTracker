@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_session
 from app.models import PriceAlert, PriceRecord, Product, Provider, User
+from app.services.cache import CacheService
 from app.schemas.analytics import (
     AvailabilityHistoryPoint,
     AvailabilityTrendsResponse,
@@ -37,16 +38,29 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.get("/price-trends/{product_id}", response_model=PriceTrendsResponse)
-def get_price_trends(
+async def get_price_trends(
     product_id: int,
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     aggregation: str = Query(
         "daily", description="Aggregation level (daily, weekly, monthly)"
     ),
+    use_cache: bool = Query(True, description="Use cached data if available"),
     session: Session = Depends(get_session),
 ):
     """Get price trends for a specific product."""
+    # Create cache key
+    cache_key = f"price_trends:{product_id}:{start_date}:{end_date}:{aggregation}"
+    
+    # Try to get from cache first
+    if use_cache:
+        cache_service = CacheService()
+        await cache_service.connect()
+        cached_data = await cache_service.get(cache_key)
+        if cached_data:
+            await cache_service.disconnect()
+            return cached_data
+    
     # Validate aggregation parameter
     if aggregation not in ["daily", "weekly", "monthly"]:
         raise HTTPException(
@@ -127,21 +141,43 @@ def get_price_trends(
         price_change_30d=price_change_30d,
     )
 
-    return PriceTrendsResponse(
+    response = PriceTrendsResponse(
         product_id=product_id,
         product_name=product.name,
         trends=trends,
         statistics=statistics,
         aggregation=aggregation,
     )
+    
+    # Cache the result
+    if use_cache:
+        cache_service = CacheService()
+        await cache_service.connect()
+        await cache_service.set(cache_key, response, ttl=300)  # Cache for 5 minutes
+        await cache_service.disconnect()
+    
+    return response
 
 
 @router.get("/popular-products", response_model=PopularProductsResponse)
-def get_popular_products(
+async def get_popular_products(
     limit: int = Query(10, ge=1, le=100),
+    use_cache: bool = Query(True, description="Use cached data if available"),
     session: Session = Depends(get_session),
 ):
     """Get most popular products based on alert count."""
+    # Create cache key
+    cache_key = f"popular_products:{limit}"
+    
+    # Try to get from cache first
+    if use_cache:
+        cache_service = CacheService()
+        await cache_service.connect()
+        cached_data = await cache_service.get(cache_key)
+        if cached_data:
+            await cache_service.disconnect()
+            return cached_data
+    
     # Query products with alert counts and price statistics
     popular_products_query = (
         session.query(
@@ -175,7 +211,16 @@ def get_popular_products(
     # Get total count
     total_count = session.query(Product).count()
 
-    return PopularProductsResponse(products=products, total_count=total_count)
+    response = PopularProductsResponse(products=products, total_count=total_count)
+    
+    # Cache the result
+    if use_cache:
+        cache_service = CacheService()
+        await cache_service.connect()
+        await cache_service.set(cache_key, response, ttl=600)  # Cache for 10 minutes
+        await cache_service.disconnect()
+    
+    return response
 
 
 @router.get("/provider-performance", response_model=ProviderPerformanceResponse)
@@ -266,10 +311,23 @@ def get_user_engagement_stats(
 
 
 @router.get("/dashboard", response_model=DashboardResponse)
-def get_dashboard_summary(
+async def get_dashboard_summary(
+    use_cache: bool = Query(True, description="Use cached data if available"),
     session: Session = Depends(get_session),
 ):
     """Get dashboard summary statistics."""
+    # Create cache key
+    cache_key = "dashboard_summary"
+    
+    # Try to get from cache first
+    if use_cache:
+        cache_service = CacheService()
+        await cache_service.connect()
+        cached_data = await cache_service.get(cache_key)
+        if cached_data:
+            await cache_service.disconnect()
+            return cached_data
+    
     # Core metrics
     total_products = session.query(Product).count()
     total_providers = session.query(Provider).count()
@@ -365,7 +423,7 @@ def get_dashboard_summary(
         for row in top_providers_query
     ]
 
-    return DashboardResponse(
+    response = DashboardResponse(
         total_products=total_products,
         total_providers=total_providers,
         total_users=total_users,
@@ -376,6 +434,15 @@ def get_dashboard_summary(
         top_products=top_products,
         top_providers=top_providers,
     )
+    
+    # Cache the result
+    if use_cache:
+        cache_service = CacheService()
+        await cache_service.connect()
+        await cache_service.set(cache_key, response, ttl=120)  # Cache for 2 minutes
+        await cache_service.disconnect()
+    
+    return response
 
 
 @router.get("/price-comparison/{product_id}", response_model=PriceComparisonResponse)

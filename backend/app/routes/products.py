@@ -5,12 +5,13 @@ Product API routes following TDD approach.
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..database import get_session
 from ..models import Product, ProductStatus
+from ..services.cache import cache_service
 
 
 # Request/Response schemas
@@ -87,16 +88,45 @@ def get_products(session: Session = Depends(get_session)):
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
-def get_product(product_id: int, session: Session = Depends(get_session)):
-    """Get a specific product by ID."""
+async def get_product(
+    product_id: int, 
+    use_cache: bool = Query(False, description="Whether to use caching"),
+    session: Session = Depends(get_session)
+):
+    """Get a specific product by ID with optional caching."""
+    if use_cache:
+        # Try to get from cache first
+        cached_product = await cache_service.get_cached_product(product_id)
+        if cached_product:
+            return cached_product
+    
+    # Get from database
     product = session.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Convert to dict for caching
+    product_data = {
+        "id": product.id,
+        "name": product.name,
+        "url": product.url,
+        "description": product.description,
+        "category": product.category,
+        "image_url": product.image_url,
+        "status": product.status,
+        "created_at": product.created_at.isoformat(),
+        "updated_at": product.updated_at.isoformat(),
+    }
+    
+    # Cache the result if caching is enabled
+    if use_cache:
+        await cache_service.cache_product(product_id, product_data)
+    
     return product
 
 
 @router.patch("/{product_id}", response_model=ProductResponse)
-def update_product(
+async def update_product(
     product_id: int,
     product_update: ProductUpdate,
     session: Session = Depends(get_session),
@@ -117,6 +147,9 @@ def update_product(
     session.add(product)
     session.commit()
     session.refresh(product)
+
+    # Invalidate cache for this product
+    await cache_service.invalidate_product(product_id)
 
     return product
 

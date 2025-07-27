@@ -3,6 +3,7 @@ Real-time price monitoring routes.
 Handles background monitoring tasks, price change detection, and monitoring configuration.
 """
 
+import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict
@@ -12,6 +13,7 @@ from sqlmodel import Session, func, select
 
 from ..database import get_session
 from ..models import PriceAlert, PriceRecord, Product, Provider
+from ..services.cache import CacheService
 from ..schemas.monitoring import (
     AlertPerformanceResponse,
     AlertThresholdConfig,
@@ -397,3 +399,229 @@ async def process_batch_price_updates(
         processing_time=round(processing_time, 2),
         success=True,
     )
+
+
+# Performance Monitoring Endpoints
+
+@router.get("/performance/metrics")
+async def get_performance_metrics(
+    session: Session = Depends(get_session),
+):
+    """Get system performance metrics."""
+    start_time = time.time()
+    
+    # Database metrics
+    total_products = session.query(Product).count()
+    total_price_records = session.query(PriceRecord).count()
+    total_providers = session.query(Provider).count()
+    
+    db_query_time = time.time() - start_time
+    
+    # Cache metrics
+    cache_service = CacheService()
+    await cache_service.connect()
+    cache_stats = await cache_service.get_cache_stats()
+    await cache_service.disconnect()
+    
+    # Memory usage (simplified)
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_stats = {
+            "rss_mb": round(memory_info.rss / 1024 / 1024, 2),
+            "vms_mb": round(memory_info.vms / 1024 / 1024, 2),
+        }
+    except ImportError:
+        memory_stats = {"rss_mb": 0, "vms_mb": 0}
+    
+    metrics = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "database": {
+            "total_products": total_products,
+            "total_price_records": total_price_records,
+            "total_providers": total_providers,
+            "query_time_ms": round(db_query_time * 1000, 2),
+        },
+        "cache": cache_stats,
+        "memory": memory_stats,
+        "response_time_ms": round((time.time() - start_time) * 1000, 2),
+    }
+    
+    return metrics
+
+
+@router.get("/cache/stats")
+async def get_cache_stats():
+    """Get cache statistics."""
+    cache_service = CacheService()
+    await cache_service.connect()
+    
+    try:
+        stats = await cache_service.get_cache_stats()
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "cache_stats": stats,
+        }
+    finally:
+        await cache_service.disconnect()
+
+
+@router.post("/cache/warm")
+async def warm_cache(
+    session: Session = Depends(get_session),
+):
+    """Warm up the cache with commonly accessed data."""
+    cache_service = CacheService()
+    await cache_service.connect()
+    
+    try:
+        # Warm up popular products
+        popular_products = (
+            session.query(Product)
+            .limit(10)
+            .all()
+        )
+        
+        warmed_items = 0
+        for product in popular_products:
+            await cache_service.cache_product(product.id, {
+                "id": product.id,
+                "name": product.name,
+                "category": product.category,
+            })
+            warmed_items += 1
+        
+        # Warm up recent price trends for popular products
+        for product in popular_products[:5]:
+            cache_key = f"price_trends:{product.id}:None:None:daily"
+            # This would typically involve running the actual query
+            # For now, just set a placeholder
+            await cache_service.set(cache_key, {"warmed": True}, ttl=300)
+            warmed_items += 1
+        
+        return {
+            "status": "success",
+            "warmed_items": warmed_items,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    
+    finally:
+        await cache_service.disconnect()
+
+
+@router.delete("/cache/clear")
+async def clear_cache():
+    """Clear all cache data."""
+    cache_service = CacheService()
+    await cache_service.connect()
+    
+    try:
+        # Get current stats before clearing
+        stats_before = await cache_service.get_cache_stats()
+        
+        # Clear cache
+        await cache_service.clear_all()
+        
+        # Get stats after clearing
+        stats_after = await cache_service.get_cache_stats()
+        
+        return {
+            "status": "success",
+            "stats_before": stats_before,
+            "stats_after": stats_after,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    
+    finally:
+        await cache_service.disconnect()
+
+
+@router.get("/health")
+async def health_check(
+    session: Session = Depends(get_session),
+):
+    """Comprehensive health check of all system components."""
+    health_status = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": "healthy",
+        "components": {},
+    }
+    
+    # Check database
+    try:
+        start_time = time.time()
+        session.query(Product).count()
+        db_time = time.time() - start_time
+        health_status["components"]["database"] = {
+            "status": "healthy",
+            "response_time_ms": round(db_time * 1000, 2),
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["components"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e),
+        }
+    
+    # Check cache
+    try:
+        start_time = time.time()
+        cache_service = CacheService()
+        await cache_service.connect()
+        await cache_service.get("health_check")
+        await cache_service.disconnect()
+        cache_time = time.time() - start_time
+        health_status["components"]["cache"] = {
+            "status": "healthy",
+            "response_time_ms": round(cache_time * 1000, 2),
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["components"]["cache"] = {
+            "status": "unhealthy",
+            "error": str(e),
+        }
+    
+    # Overall response time
+    overall_time = time.time() - start_time
+    health_status["overall_response_time_ms"] = round(overall_time * 1000, 2)
+    
+    # Return appropriate status code
+    if health_status["status"] == "unhealthy":
+        raise HTTPException(status_code=503, detail=health_status)
+    
+    return health_status
+
+
+@router.post("/load-test")
+async def run_load_test(
+    session: Session = Depends(get_session),
+):
+    """Run a basic load test to measure system performance."""
+    start_time = time.time()
+    
+    # Simulate concurrent requests
+    async def simulate_request():
+        request_start = time.time()
+        # Simulate database query
+        session.query(Product).count()
+        return time.time() - request_start
+    
+    # Run 10 concurrent simulated requests
+    tasks = [simulate_request() for _ in range(10)]
+    response_times = await asyncio.gather(*tasks)
+    
+    total_time = time.time() - start_time
+    
+    results = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_requests": len(tasks),
+        "total_time_seconds": round(total_time, 3),
+        "average_response_time_ms": round(sum(response_times) * 1000 / len(response_times), 2),
+        "min_response_time_ms": round(min(response_times) * 1000, 2),
+        "max_response_time_ms": round(max(response_times) * 1000, 2),
+        "requests_per_second": round(len(tasks) / total_time, 2),
+    }
+    
+    return results
