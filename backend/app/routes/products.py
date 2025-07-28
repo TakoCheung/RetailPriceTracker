@@ -10,6 +10,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Session, select
 
+from app.exceptions import DataValidationError, ResourceNotFoundError
+
 from ..database import get_async_session, get_session
 from ..models import Product, ProductStatus
 from ..services.cache import cache_service
@@ -59,9 +61,9 @@ def create_product(
     # Validate using our custom method
     temp_product = Product(name=product_data.name)
     if not temp_product.is_valid_name():
-        raise HTTPException(
-            status_code=422,
-            detail="validation error: Product name must be at least 2 characters long",
+        raise DataValidationError(
+            "Product validation failed",
+            {"name": "Product name must be at least 2 characters long"},
         )
 
     # Create the product
@@ -331,7 +333,7 @@ async def get_product(
     # Get from database
     product = session.get(Product, product_id)
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise ResourceNotFoundError("Product", product_id)
 
     # Convert to dict for caching
     product_data = {
