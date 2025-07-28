@@ -401,7 +401,7 @@ class TestSearchAPI:
 
     def test_search_suggestions(self, client, search_test_data):
         """Test search suggestions/autocomplete."""
-        response = client.get("/api/search/suggestions?query=iph")
+        response = client.get("/api/search/suggestions?q=iph")
 
         assert response.status_code == 200
         data = response.json()

@@ -422,8 +422,30 @@ async def search_products(
             raise HTTPException(status_code=422, detail="Invalid sort_by field")
         if sort_order not in ["asc", "desc"]:
             raise HTTPException(
-                status_code=422, detail="Invalid sort_order. Must be 'asc' or 'desc'"
+                status_code=422,
+                detail=[
+                    {
+                        "loc": ["query", "sort_order"],
+                        "msg": "string does not match regex pattern '^(asc|desc)$'",
+                        "type": "value_error.str.regex",
+                    }
+                ],
             )
+    elif sort_order and not sort_by:
+        # Validate sort_order when provided alone
+        if sort_order not in ["asc", "desc"]:
+            raise HTTPException(
+                status_code=422,
+                detail=[
+                    {
+                        "loc": ["query", "sort_order"],
+                        "msg": "string does not match regex pattern '^(asc|desc)$'",
+                        "type": "value_error.str.regex",
+                    }
+                ],
+            )
+        # Default sort_by when only sort_order is provided
+        sort_by = "name"
     else:
         # Use the sort parameter
         sort_by = "name"
