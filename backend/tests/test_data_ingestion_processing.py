@@ -5,10 +5,11 @@ price parsing, provider integration, and data quality assurance.
 """
 
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+import aiohttp
 import pytest
-from app.exceptions import ETLError, ParsingError, ScrapingError
+from app.exceptions import ParsingError, ScrapingError
 from app.services.data_ingestion import DataIngestionService
 from app.services.etl import DataTransformer, ETLPipeline
 from app.services.parser import DataValidator, PriceParser
@@ -127,20 +128,53 @@ class TestScrapingService:
         service = ScrapingService()
         service.max_retries = 3
 
-        # Mock to fail twice, then succeed
+        # Mock session.get to fail twice, then succeed
         call_count = 0
 
-        def mock_fetch(url):
+        class MockResponse:
+            def __init__(self, status, text_content):
+                self.status = status
+                self._text_content = text_content
+
+            async def text(self):
+                return self._text_content
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        class MockAsyncContextManager:
+            def __init__(self, response):
+                self._response = response
+
+            async def __aenter__(self):
+                return self._response
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        def mock_get(url, headers=None):
             nonlocal call_count
             call_count += 1
             if call_count <= 2:
-                raise Exception("Temporary failure")
-            return "<html><div class='price'>$99.99</div></html>"
+                # Simulate network failure
+                raise aiohttp.ClientError("Temporary failure")
+            # Third attempt succeeds
+            response = MockResponse(200, "<html><div class='price'>$99.99</div></html>")
+            return MockAsyncContextManager(response)
 
-        with patch.object(service, "_fetch_page", side_effect=mock_fetch):
-            result = await service.scrape_product_page(
-                "https://example.com/product/123", {"price": ".price"}
-            )
+        # Mock the session and get method
+        mock_session = AsyncMock()
+        mock_session.get = mock_get
+        mock_session.closed = False
+
+        with patch.object(service, "_get_session", return_value=mock_session):
+            with patch.object(service, "_rate_limit", return_value=None):
+                result = await service.scrape_product_page(
+                    "https://example.com/product/123", {"price": ".price"}
+                )
 
         assert call_count == 3
         assert result["price"] == "$99.99"
@@ -567,8 +601,10 @@ class TestETLPipeline:
 
         source_config = {"type": "invalid_source"}
 
-        with pytest.raises(ETLError):
-            await pipeline.run(source_config)
+        # The pipeline catches ETLError and returns error response
+        result = await pipeline.run(source_config)
+        assert result["status"] == "error"
+        assert "Unsupported source type" in result["error_message"]
 
 
 class TestDataTransformer:
@@ -787,7 +823,13 @@ class TestDataIngestionService:
         with patch.object(service.scraper, "scrape_multiple_products") as mock_scrape:
             with patch.object(service.etl_pipeline, "run") as mock_etl:
                 mock_scrape.return_value = [{"title": "Test", "price": "$10"}]
-                mock_etl.return_value = {"status": "success", "created": 1}
+                mock_etl.return_value = {
+                    "status": "success",
+                    "created": 1,
+                    "records_extracted": 1,
+                    "records_processed": 1,
+                    "execution_time_seconds": 1.5,
+                }
 
                 result = await service.ingest_from_provider(provider_config)
 

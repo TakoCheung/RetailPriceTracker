@@ -191,10 +191,14 @@ class DataQualityChecker:
                     if sig == signature
                 ]
 
+                # Find the first record to get the name
+                first_record = duplicate_records[0]
+
                 duplicates.append(
                     {
                         "signature": signature,
                         "count": signature_counts[signature],
+                        "name": first_record.get("name", ""),
                         "records": duplicate_records,
                         "indices": [
                             j for j, sig in enumerate(signatures) if sig == signature

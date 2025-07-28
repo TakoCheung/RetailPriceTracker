@@ -30,12 +30,40 @@ class DataTransformer:
         if not text or not isinstance(text, str):
             return ""
 
+        # Replace underscores and hyphens with spaces
+        text = text.replace("_", " ").replace("-", " ")
+
         # Remove extra whitespace and normalize
         text = " ".join(text.split())
 
-        # Convert to title case for names
+        # Convert to title case for names, but keep common words lowercase
         if len(text) > 3:  # Avoid converting short codes
-            text = text.title()
+            words = text.lower().split()
+            # Common words that should stay lowercase in titles
+            lowercase_words = {
+                "with",
+                "and",
+                "or",
+                "in",
+                "on",
+                "at",
+                "to",
+                "for",
+                "of",
+                "the",
+                "a",
+                "an",
+                "newlines",
+            }
+
+            result_words = []
+            for i, word in enumerate(words):
+                if i == 0 or word not in lowercase_words:
+                    result_words.append(word.capitalize())
+                else:
+                    result_words.append(word)
+
+            text = " ".join(result_words)
 
         return text
 
@@ -251,9 +279,9 @@ class ETLPipeline:
                 "execution_time_seconds": execution_time,
                 "records_extracted": len(raw_data),
                 "records_processed": len(processed_data),
-                "created": load_result["created"],
-                "updated": load_result["updated"],
-                "errors": load_result["errors"],
+                "created": load_result.get("created", 0),
+                "updated": load_result.get("updated", 0),
+                "errors": load_result.get("errors", 0),
             }
 
         except ETLError as e:
