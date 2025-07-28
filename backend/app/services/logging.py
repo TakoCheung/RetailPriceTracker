@@ -184,6 +184,13 @@ class LoggingService:
         """Get a structured logger instance."""
         return StructuredLogger(name, self.log_level)
 
+    def log_security_event(self, event_type: str, **kwargs):
+        """Log a security event with structured data."""
+        security_logger = self.get_logger("security")
+        security_logger.security(
+            f"Security event: {event_type}", event_type=event_type, **kwargs
+        )
+
     def configure_correlation_context(
         self, correlation_id: str, request_id: str = None
     ):

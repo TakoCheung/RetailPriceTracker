@@ -189,7 +189,7 @@ class TestSecurityMiddleware:
 
     def test_cors_configuration(self):
         """Test CORS configuration and headers."""
-        middleware = SecurityMiddleware()
+        middleware = SecurityMiddleware(Mock())
 
         # Configure CORS
         middleware.configure_cors(
@@ -203,7 +203,7 @@ class TestSecurityMiddleware:
 
     def test_security_headers_configuration(self):
         """Test security headers configuration."""
-        middleware = SecurityMiddleware()
+        middleware = SecurityMiddleware(Mock())
 
         headers = middleware.get_security_headers()
 
@@ -216,7 +216,7 @@ class TestSecurityMiddleware:
 
     def test_content_security_policy(self):
         """Test Content Security Policy configuration."""
-        middleware = SecurityMiddleware()
+        middleware = SecurityMiddleware(Mock())
 
         csp = middleware.get_content_security_policy()
 
@@ -240,7 +240,7 @@ class TestSecurityMiddleware:
 
     def test_request_size_limits(self):
         """Test request size limitations."""
-        middleware = SecurityMiddleware()
+        middleware = SecurityMiddleware(Mock())
 
         # Configure size limits
         middleware.configure_size_limits(
@@ -453,7 +453,7 @@ class TestAPIKeyAuthentication:
         expires_at = datetime.now(timezone.utc) + timedelta(days=30)
 
         # Store API key with expiration
-        service.store_api_key(api_key, user_id, expires_at=expires_at)
+        service.store_api_key(api_key, user_id, ["read"], expires_at=expires_at)
 
         # Should be valid now
         assert service.is_api_key_expired(api_key) is False
