@@ -53,6 +53,7 @@ class SearchSuggestionsResponse(BaseModel):
     suggestions: List[str]
     query: str
     suggestion_time_ms: int
+    response_time_ms: Optional[int] = None  # For performance test compatibility
 
 
 # Search facets schema

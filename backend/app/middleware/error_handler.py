@@ -68,6 +68,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         response = {
             "error_code": exc.error_code,
             "message": exc.message,
+            "detail": exc.message,  # Add FastAPI standard "detail" field for compatibility
             "error_id": error_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -93,6 +94,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         return {
             "error_code": "INTERNAL_SERVER_ERROR",
             "message": "An internal server error occurred",
+            "detail": "An internal server error occurred",  # Add FastAPI standard "detail" field for compatibility
             "error_id": error_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

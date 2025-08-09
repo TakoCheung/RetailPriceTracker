@@ -91,11 +91,15 @@ class Product(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=200)
+    sku: Optional[str] = Field(default=None, max_length=100, unique=True)
     url: Optional[str] = Field(default=None, max_length=2048)
     description: Optional[str] = Field(default=None, max_length=1000)
     category: Optional[str] = Field(default=None, max_length=100)
+    brand: Optional[str] = Field(default=None, max_length=100)
     image_url: Optional[str] = Field(default=None, max_length=2048)
     status: ProductStatus = Field(default=ProductStatus.ACTIVE)
+    is_active: bool = Field(default=True)
+    deleted_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

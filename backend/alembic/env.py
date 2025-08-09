@@ -13,7 +13,9 @@ target_metadata = SQLModel.metadata
 
 config.set_main_option(
     "sqlalchemy.url",
-    os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@db:5432/prices"),
+    os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@db:5432/prices").replace(
+        "postgresql+asyncpg://", "postgresql://"
+    ),
 )
 
 

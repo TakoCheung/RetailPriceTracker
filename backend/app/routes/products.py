@@ -3,17 +3,17 @@ Product API routes following TDD approach.
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Session, select
 
 from app.exceptions import DataValidationError, ResourceNotFoundError
 
 from ..database import get_async_session, get_session
-from ..models import Product, ProductStatus
+from ..models import Product, ProductStatus, PriceRecord
 from ..services.cache import cache_service
 
 
@@ -24,6 +24,13 @@ class ProductCreate(BaseModel):
     description: str | None = None
     category: str | None = None
     image_url: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if not v or len(v.strip()) < 2:
+            raise ValueError("Product name must be at least 2 characters long")
+        return v.strip()
 
 
 class ProductUpdate(BaseModel):
@@ -45,6 +52,8 @@ class ProductResponse(BaseModel):
     status: ProductStatus
     created_at: datetime
     updated_at: datetime
+    latest_prices: List[Dict] | None = None
+    price_records: List[Dict] | None = None
 
     class Config:
         from_attributes = True
@@ -53,41 +62,53 @@ class ProductResponse(BaseModel):
 router = APIRouter()
 
 
-@router.post("/", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
-def create_product(
-    product_data: ProductCreate, session: Session = Depends(get_session)
+@router.post("/", response_model=ProductResponse, status_code=201)
+async def create_product(
+    product: ProductCreate, 
+    session: Session = Depends(get_session)
 ):
     """Create a new product."""
-    # Validate using our custom method
-    temp_product = Product(name=product_data.name)
-    if not temp_product.is_valid_name():
-        raise DataValidationError(
-            "Product validation failed",
-            {"name": "Product name must be at least 2 characters long"},
-        )
-
-    # Create the product
-    product = Product(
-        name=product_data.name,
-        url=product_data.url,
-        description=product_data.description,
-        category=product_data.category,
-        image_url=product_data.image_url,
-    )
-
-    session.add(product)
+    # Create new product instance
+    db_product = Product(**product.model_dump())
+    session.add(db_product)
     session.commit()
-    session.refresh(product)
+    session.refresh(db_product)
 
-    return product
+    # Return the created product in consistent format
+    response_data = {
+        **db_product.model_dump(),
+    }
+
+    return ProductResponse(**response_data)
 
 
 @router.get("/", response_model=List[ProductResponse])
-def get_products(session: Session = Depends(get_session)):
+def get_products(response: Response, session: Session = Depends(get_session)):
     """Get all products."""
+    from hashlib import md5
+    from datetime import datetime
+    
     statement = select(Product)
     products = session.execute(statement).scalars().all()
-    return products
+    
+    # Create proper response data for each product
+    products_data = []
+    for product in products:
+        response_data = {
+            **product.model_dump(),
+        }
+        products_data.append(response_data)
+    
+    # Generate ETag based on products data
+    etag = md5(str(products_data).encode()).hexdigest()
+    
+    # Set caching headers
+    response.headers["Cache-Control"] = "public, max-age=300"  # 5 minutes
+    response.headers["ETag"] = f'"{etag}"'
+    response.headers["Last-Modified"] = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
+    
+    # Return ProductResponse objects
+    return [ProductResponse(**data) for data in products_data]
 
 
 # Advanced Search & Filtering endpoints for products
@@ -319,40 +340,58 @@ async def get_product_autocomplete(
 
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(
-    product_id: int,
-    use_cache: bool = Query(False, description="Whether to use caching"),
-    session: Session = Depends(get_session),
+    product_id: int, 
+    use_cache: bool = Query(False, description="Use caching for better performance"),
+    include: str = Query(None, description="Include related data (e.g., 'price_records')"),
+    session: Session = Depends(get_session)
 ):
-    """Get a specific product by ID with optional caching."""
+    """Get a specific product by ID with optional caching and relationship loading."""
+    from ..services.cache import cache_service
+    
+    # Try cache first if enabled
     if use_cache:
-        # Try to get from cache first
         cached_product = await cache_service.get_cached_product(product_id)
         if cached_product:
-            return cached_product
-
-    # Get from database
+            return ProductResponse(**cached_product)
+    
     product = session.get(Product, product_id)
     if not product:
-        raise ResourceNotFoundError("Product", product_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
+        )
 
-    # Convert to dict for caching
-    product_data = {
-        "id": product.id,
-        "name": product.name,
-        "url": product.url,
-        "description": product.description,
-        "category": product.category,
-        "image_url": product.image_url,
-        "status": product.status,
-        "created_at": product.created_at.isoformat(),
-        "updated_at": product.updated_at.isoformat(),
+    # Get the latest price records for this product
+    price_records_query = (
+        select(PriceRecord)
+        .where(PriceRecord.product_id == product_id)
+        .order_by(PriceRecord.recorded_at.desc())
+        .limit(10)
+    )
+    latest_prices = session.execute(price_records_query).scalars().all()
+
+    response_data = {
+        **product.dict(),
+        "latest_prices": [
+            {
+                "provider_id": record.provider_id,
+                "price": record.price,
+                "currency": record.currency,
+                "is_available": record.is_available,
+                "recorded_at": record.recorded_at.isoformat(),
+            }
+            for record in latest_prices
+        ],
     }
-
+    
+    # Include price_records if requested
+    if include and "price_records" in include:
+        response_data["price_records"] = response_data["latest_prices"]
+    
     # Cache the result if caching is enabled
     if use_cache:
-        await cache_service.cache_product(product_id, product_data)
+        await cache_service.cache_product(product_id, response_data, ttl_seconds=1800)
 
-    return product
+    return ProductResponse(**response_data)
 
 
 @router.patch("/{product_id}", response_model=ProductResponse)
@@ -381,7 +420,12 @@ async def update_product(
     # Invalidate cache for this product
     await cache_service.invalidate_product(product_id)
 
-    return product
+    # Return the updated product in the same format as GET endpoint
+    response_data = {
+        **product.model_dump(),
+    }
+
+    return ProductResponse(**response_data)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)

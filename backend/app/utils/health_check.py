@@ -69,7 +69,7 @@ class HealthCheckService:
             test_key = "health_check_test"
             test_value = {"timestamp": datetime.now(timezone.utc).isoformat()}
 
-            await cache_service.set(test_key, test_value, ttl=10)
+            await cache_service.set(test_key, test_value, expire=10)
             retrieved_value = await cache_service.get(test_key)
 
             await cache_service.disconnect()

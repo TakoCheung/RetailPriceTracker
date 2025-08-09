@@ -112,8 +112,8 @@ class TestSimpleTDD:
 
         assert provider.is_valid_rate_limit() is True
 
-        provider_invalid = Provider(
-            name="Test Provider", base_url="https://test.com", rate_limit=0
-        )
-
-        assert provider_invalid.is_valid_rate_limit() is False
+        # Test that invalid rate_limit raises ValueError during creation
+        with pytest.raises(ValueError, match="Rate limit must be greater than or equal to 1"):
+            Provider(
+                name="Test Provider", base_url="https://test.com", rate_limit=0
+            )

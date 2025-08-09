@@ -3,6 +3,7 @@ Analytics API endpoints.
 Provides insights into price trends, user engagement, and system performance.
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -34,10 +35,128 @@ from app.schemas.analytics import (
 )
 from app.services.cache import CacheService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.get("/price-trends/{product_id}", response_model=PriceTrendsResponse)
+async def get_price_trends_simple(
+    product_id: int,
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    aggregation: str = Query("daily", description="Aggregation level (daily, weekly, monthly)"),
+    use_cache: bool = Query(True, description="Use cached data if available"),
+    session: Session = Depends(get_session),
+):
+    """Get price trends for a specific product."""
+    # Validate aggregation parameter first
+    if aggregation not in ["daily", "weekly", "monthly"]:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid aggregation parameter. Must be daily, weekly, or monthly.",
+        )
+
+    # Verify product exists
+    product = session.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # Set default date range (last 30 days) or use provided dates
+    if not end_date:
+        end_date_obj = datetime.utcnow()
+    else:
+        try:
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid end_date format. Use YYYY-MM-DD.")
+
+    if not start_date:
+        # If no start_date provided, use days parameter or 30 days default
+        start_date_obj = end_date_obj - timedelta(days=days)
+    else:
+        try:
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid start_date format. Use YYYY-MM-DD.")
+
+    # Create cache key including all parameters
+    cache_key = f"price_trends:{product_id}:{start_date_obj.strftime('%Y-%m-%d')}:{end_date_obj.strftime('%Y-%m-%d')}:{aggregation}"
+
+    # Check cache first if enabled
+    if use_cache:
+        cache_service = CacheService()
+        cached_data = await cache_service.get(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for {cache_key}, data type: {type(cached_data)}")
+            logger.debug(f"Cached data content: {cached_data}")
+            try:
+                return PriceTrendsResponse(**cached_data)
+            except Exception as e:
+                logger.error(f"Failed to reconstruct PriceTrendsResponse from cache: {e}")
+                # Continue to generate fresh data
+
+    # Get price records for the time period
+    query = (
+        session.query(PriceRecord)
+        .filter(
+            and_(
+                PriceRecord.product_id == product_id,
+                PriceRecord.recorded_at >= start_date_obj,
+                PriceRecord.recorded_at <= end_date_obj,
+            )
+        )
+        .order_by(PriceRecord.recorded_at)
+    )
+
+    price_records = query.all()
+
+    # Process trends data
+    trends = []
+    for record in price_records:
+        trends.append(
+            PriceTrendPoint(
+                date=record.recorded_at,
+                price=record.price,
+                is_available=record.is_available,
+            )
+        )
+
+    # Calculate statistics
+    prices = [r.price for r in price_records]
+    current_price = prices[-1] if prices else 0.0
+    avg_price = sum(prices) / len(prices) if prices else 0.0
+    min_price = min(prices) if prices else 0.0
+    max_price = max(prices) if prices else 0.0
+
+    # Calculate change percentage (compared to first price)
+    change_percentage = 0.0
+    if len(prices) > 1:
+        change_percentage = ((current_price - prices[0]) / prices[0]) * 100
+
+    result = PriceTrendsResponse(
+        product_id=product_id,
+        product_name=product.name,
+        trends=trends,
+        statistics=PriceStatistics(
+            current_price=current_price,
+            average_price=avg_price,
+            min_price=min_price,
+            max_price=max_price,
+            price_change_30d=change_percentage,
+        ),
+        aggregation=aggregation,
+    )
+
+    # Cache the result if caching is enabled
+    if use_cache:
+        cache_service = CacheService()
+        await cache_service.set(cache_key, result, expire=3600)  # Cache for 1 hour
+
+    return result
+
+
+@router.get("/price-trends/{product_id}/detailed", response_model=PriceTrendsResponse)
 async def get_price_trends(
     product_id: int,
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
@@ -59,7 +178,8 @@ async def get_price_trends(
         cached_data = await cache_service.get(cache_key)
         if cached_data:
             await cache_service.disconnect()
-            return cached_data
+            # Reconstruct the Pydantic model from cached data
+            return PriceTrendsResponse(**cached_data)
 
     # Validate aggregation parameter
     if aggregation not in ["daily", "weekly", "monthly"]:
@@ -153,7 +273,8 @@ async def get_price_trends(
     if use_cache:
         cache_service = CacheService()
         await cache_service.connect()
-        await cache_service.set(cache_key, response, ttl=300)  # Cache for 5 minutes
+        # Cache for 5 minutes
+        await cache_service.set(cache_key, response, expire=300)  # Cache for 5 minutes
         await cache_service.disconnect()
 
     return response
@@ -176,7 +297,8 @@ async def get_popular_products(
         cached_data = await cache_service.get(cache_key)
         if cached_data:
             await cache_service.disconnect()
-            return cached_data
+            # Reconstruct the Pydantic model from cached data
+            return PopularProductsResponse(**cached_data)
 
     # Query products with alert counts and price statistics
     popular_products_query = (
@@ -217,7 +339,7 @@ async def get_popular_products(
     if use_cache:
         cache_service = CacheService()
         await cache_service.connect()
-        await cache_service.set(cache_key, response, ttl=600)  # Cache for 10 minutes
+        await cache_service.set(cache_key, response, expire=600)  # Cache for 10 minutes
         await cache_service.disconnect()
 
     return response
@@ -439,7 +561,7 @@ async def get_dashboard_summary(
     if use_cache:
         cache_service = CacheService()
         await cache_service.connect()
-        await cache_service.set(cache_key, response, ttl=120)  # Cache for 2 minutes
+        await cache_service.set(cache_key, response, expire=120)  # Cache for 2 minutes
         await cache_service.disconnect()
 
     return response
@@ -581,3 +703,127 @@ def get_availability_trends(
         current_availability=current_availability,
         availability_percentage=availability_percentage,
     )
+
+
+@router.get("/export/price-data")
+async def export_price_data(
+    format: str = Query("json", description="Export format (json, csv)"),
+    days: int = Query(30, ge=1, le=365, description="Number of days to export"),
+    session: Session = Depends(get_session),
+):
+    """Export price data in various formats."""
+    from fastapi.responses import StreamingResponse
+    import json
+    
+    # Get price data from the last N days
+    end_date = datetime.utcnow()
+    start_date = end_date - timedelta(days=days)
+    
+    price_records = (
+        session.query(PriceRecord)
+        .filter(PriceRecord.recorded_at >= start_date)
+        .order_by(PriceRecord.recorded_at.desc())
+        .all()
+    )
+    
+    if format.lower() == "json":
+        def generate_json():
+            yield "["
+            for i, record in enumerate(price_records):
+                if i > 0:
+                    yield ","
+                yield json.dumps({
+                    "product_id": record.product_id,
+                    "provider_id": record.provider_id,
+                    "price": record.price,
+                    "currency": record.currency,
+                    "is_available": record.is_available,
+                    "recorded_at": record.recorded_at.isoformat(),
+                })
+            yield "]"
+        
+        return StreamingResponse(
+            generate_json(),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=price_data.json"}
+        )
+    
+    # For other formats, return JSON by default
+    data = [
+        {
+            "product_id": record.product_id,
+            "provider_id": record.provider_id,
+            "price": record.price,
+            "currency": record.currency,
+            "is_available": record.is_available,
+            "recorded_at": record.recorded_at.isoformat(),
+        }
+        for record in price_records
+    ]
+    
+    return {"data": data, "count": len(data), "exported_days": days}
+
+
+@router.get("/complex-report")
+async def get_complex_report(
+    days: int = Query(30, ge=1, le=365, description="Number of days for the report"),
+    include_aggregations: bool = Query(False, description="Include complex aggregations"),
+    session: Session = Depends(get_session),
+):
+    """Get a complex analytics report (potentially slow query for testing)."""
+    import time
+    
+    # Simulate a complex query that might be slow
+    start_time = time.time()
+    
+    end_date = datetime.utcnow()
+    start_date = end_date - timedelta(days=days)
+    
+    # Basic data
+    total_records = (
+        session.query(func.count(PriceRecord.id))
+        .filter(PriceRecord.recorded_at >= start_date)
+        .scalar()
+    )
+    
+    report_data = {
+        "report_period_days": days,
+        "total_price_records": total_records,
+        "report_generated_at": datetime.utcnow().isoformat(),
+    }
+    
+    if include_aggregations:
+        # Add some more complex queries to simulate slow operations
+        time.sleep(0.1)  # Simulate slow query
+        
+        # Get price statistics by product
+        product_stats = (
+            session.query(
+                PriceRecord.product_id,
+                func.avg(PriceRecord.price).label("avg_price"),
+                func.min(PriceRecord.price).label("min_price"),
+                func.max(PriceRecord.price).label("max_price"),
+                func.count(PriceRecord.id).label("record_count")
+            )
+            .filter(PriceRecord.recorded_at >= start_date)
+            .group_by(PriceRecord.product_id)
+            .all()
+        )
+        
+        report_data["aggregations"] = {
+            "product_statistics": [
+                {
+                    "product_id": stat.product_id,
+                    "avg_price": float(stat.avg_price) if stat.avg_price else 0,
+                    "min_price": float(stat.min_price) if stat.min_price else 0,
+                    "max_price": float(stat.max_price) if stat.max_price else 0,
+                    "record_count": stat.record_count
+                }
+                for stat in product_stats[:10]  # Limit to top 10
+            ]
+        }
+    
+    processing_time = (time.time() - start_time) * 1000  # Convert to ms
+    report_data["processing_time_ms"] = round(processing_time, 2)
+    
+    return report_data

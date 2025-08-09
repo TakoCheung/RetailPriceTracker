@@ -18,6 +18,8 @@ services:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
       - ./backend/conftest.py:/app/conftest.py
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:pass@db:5432/prices
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -33,6 +35,8 @@ services:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
       - ./backend/conftest.py:/app/conftest.py
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:pass@db:5432/prices
       - CELERY_BROKER_URL=redis://redis:6379/0
