@@ -59,6 +59,10 @@ class SMSService:
         except Exception as e:
             print(f"Failed to send SMS: {str(e)}")
             return False
+
+    async def send_alert_sms(self, phone_number: str, message: str) -> bool:
+        """Send SMS alert notification (async compatibility)."""
+        return self.send_sms(phone_number, message, priority="high")
             
     def send_bulk_sms(self, recipients: List[str], message: str) -> Dict[str, bool]:
         """Send bulk SMS notifications."""

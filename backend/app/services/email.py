@@ -24,11 +24,15 @@ class EmailService:
         product_name: str, 
         old_price: float, 
         new_price: float, 
-        alert_type: str = "price_drop"
+        alert_type: str = "price_drop",
+        subject: str = None,
+        threshold_price: float = None,
+        condition: str = None,
+        **kwargs
     ) -> bool:
         """Send price alert email notification."""
         try:
-            subject = f"Price Alert: {product_name}"
+            email_subject = subject or f"Price Alert: {product_name}"
             
             if alert_type == "price_drop":
                 body = f"""
@@ -49,7 +53,7 @@ class EmailService:
                 """
             
             # Mock email sending for testing
-            print(f"Sending email to {to_email}: {subject}")
+            print(f"Sending email to {to_email}: {email_subject}")
             print(f"Body: {body.strip()}")
             
             return True

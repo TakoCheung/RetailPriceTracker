@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, Request
@@ -129,5 +130,6 @@ async def websocket_route(websocket: WebSocket, token: str = None):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
-    await init_db()
+    """Initialize database on startup (skip in test mode)."""
+    if os.getenv("TESTING") != "1":
+        await init_db()

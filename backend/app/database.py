@@ -36,3 +36,7 @@ async def get_async_session():
     """Async database dependency for FastAPI."""
     async with AsyncSessionLocal() as session:
         yield session
+
+
+# Alias for compatibility
+get_db = get_async_session

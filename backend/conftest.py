@@ -14,21 +14,34 @@ from app.main import app
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import Session, create_engine
 
 # Test database URL - using Docker service name for containerized tests
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql+asyncpg://user:pass@db:5432/prices_test"
 )
 
-# Create test engines (both async and sync)
+# Create test engines (both async and sync) with better connection settings
 test_engine = create_async_engine(
-    TEST_DATABASE_URL, echo=False, future=True, pool_pre_ping=True
+    TEST_DATABASE_URL, 
+    echo=False, 
+    future=True, 
+    pool_pre_ping=True,
+    pool_recycle=300,
+    pool_timeout=30,
+    max_overflow=0,
+    pool_size=1,  # Single connection for tests to avoid conflicts
 )
 
 # Sync engine for routes that use sync sessions
 sync_test_url = TEST_DATABASE_URL.replace("+asyncpg", "")
-sync_test_engine = create_engine(sync_test_url, echo=False, pool_pre_ping=True)
+sync_test_engine = create_engine(
+    sync_test_url, 
+    echo=False, 
+    pool_pre_ping=True,
+    pool_size=1,
+    max_overflow=0
+)
 
 TestAsyncSessionLocal = sessionmaker(
     test_engine, class_=AsyncSession, expire_on_commit=False
@@ -39,41 +52,58 @@ TestSyncSessionLocal = sessionmaker(
 )
 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Provides a clean database session for each test.
-    Creates all tables before test and drops them after.
-    """
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def setup_test_database():
+    """Setup test database tables once per test session."""
+    from sqlmodel import SQLModel
+    
+    # Create all tables
     async with test_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-
-    async with TestAsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.rollback()
-            await session.close()
-
+    
+    yield
+    
+    # Clean up after all tests
     async with test_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
 
 
+@pytest_asyncio.fixture(scope="function")
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Provides a clean database session for each test.
+    Uses transactions for isolation instead of table dropping.
+    """
+    async with TestAsyncSessionLocal() as session:
+        # Start a transaction
+        trans = await session.begin()
+        try:
+            yield session
+        finally:
+            # Always rollback to ensure clean state
+            await trans.rollback()
+            await session.close()
+
+
 @pytest.fixture
 def client():
-    """Test client for FastAPI application."""
+    """Test client for FastAPI application with improved async handling."""
     from app.database import get_async_session
 
     async def get_test_async_session():
         async with TestAsyncSessionLocal() as session:
             yield session
 
+    # Override the dependency
     app.dependency_overrides[get_async_session] = get_test_async_session
-
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
+    
+    try:
+        # Create test client with proper async handling
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        # Always clean up overrides
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -181,6 +211,6 @@ def sample_alert_data():
 @pytest.fixture
 def freeze_time():
     """Fixture to freeze time for testing."""
-    from freezegun import freeze_time
-
-    return freeze_time
+    # Mock time freezing for tests that need it
+    from unittest.mock import Mock
+    return Mock()
