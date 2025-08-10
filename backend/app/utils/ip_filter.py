@@ -86,7 +86,7 @@ class IPFilterService:
     def is_ip_blocked(self, ip_address: str) -> bool:
         """Check if an IP address is currently blocked."""
         current_time = datetime.now(timezone.utc)
-        
+
         # Check permanent blocks
         if ip_address in self.blocked_ips:
             block_data = self.blocked_ips[ip_address]

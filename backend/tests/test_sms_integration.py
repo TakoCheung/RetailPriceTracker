@@ -24,7 +24,7 @@ class TestSMSIntegration:
         """Test SMS service sends alert SMS correctly."""
         phone_number = "+1234567890"
         message = "Price Alert: Test Product is now $90.0 (target: $100.0)"
-        
+
         result = await sms_service.send_alert_sms(phone_number, message)
         assert result is True
 
@@ -34,7 +34,7 @@ class TestSMSIntegration:
         assert sms_service.validate_phone_number("+1234567890") is True
         assert sms_service.validate_phone_number("(123) 456-7890") is True
         assert sms_service.validate_phone_number("123-456-7890") is True
-        
+
         # Invalid numbers
         assert sms_service.validate_phone_number("12345") is False
         assert sms_service.validate_phone_number("abcdefghij") is False
@@ -48,19 +48,19 @@ class TestSMSIntegration:
     @pytest.mark.asyncio
     async def test_alert_processor_sms_integration(self):
         """Test AlertProcessingService correctly integrates with SMS service."""
-        
+
         # Create alert processor with mocked services
         alert_processor = AlertProcessingService()
-        
+
         # Mock the SMS service
         mock_sms_service = AsyncMock()
         mock_sms_service.send_alert_sms = AsyncMock(return_value=True)
         alert_processor.sms_service = mock_sms_service
-        
-        # Mock other services 
+
+        # Mock other services
         alert_processor.email_service = AsyncMock()
         alert_processor.websocket_manager = AsyncMock()
-        
+
         # Create test alert data
         user = Mock()
         user.id = 1
@@ -85,7 +85,7 @@ class TestSMSIntegration:
         mock_db_session = AsyncMock()
         mock_execute_result = AsyncMock()
         mock_execute_result.scalar_one_or_none = AsyncMock()
-        
+
         # Configure mock to return user and product
         def mock_execute(stmt):
             mock_result = AsyncMock()
@@ -95,7 +95,7 @@ class TestSMSIntegration:
             else:
                 mock_result.scalar_one_or_none.return_value = product
             return mock_result
-        
+
         mock_db_session.execute.side_effect = mock_execute
 
         current_price = 90.0
@@ -106,31 +106,30 @@ class TestSMSIntegration:
         # Verify SMS service was called
         expected_message = f"Price Alert: {product.name} is now ${current_price} (target: ${alert.threshold_price})"
         mock_sms_service.send_alert_sms.assert_called_once_with(
-            phone_number=user.phone_number,
-            message=expected_message
+            phone_number=user.phone_number, message=expected_message
         )
 
     @pytest.mark.asyncio
     async def test_alert_processor_multi_channel_with_sms(self):
         """Test multi-channel notifications including SMS."""
-        
+
         # Create alert processor with all mocked services
         alert_processor = AlertProcessingService()
-        
+
         # Mock all services
         mock_sms_service = AsyncMock()
         mock_sms_service.send_alert_sms = AsyncMock(return_value=True)
-        
+
         mock_email_service = AsyncMock()
         mock_email_service.send_alert_email = AsyncMock(return_value=True)
-        
+
         mock_websocket_manager = AsyncMock()
         mock_websocket_manager.send_alert_to_user = AsyncMock()
-        
+
         alert_processor.sms_service = mock_sms_service
         alert_processor.email_service = mock_email_service
         alert_processor.websocket_manager = mock_websocket_manager
-        
+
         # Create test data
         user = Mock()
         user.id = 1
@@ -153,6 +152,7 @@ class TestSMSIntegration:
 
         # Mock database session
         mock_db_session = AsyncMock()
+
         def mock_execute(stmt):
             mock_result = AsyncMock()
             if "users" in str(stmt).lower():
@@ -160,7 +160,7 @@ class TestSMSIntegration:
             else:
                 mock_result.scalar_one_or_none.return_value = product
             return mock_result
-        
+
         mock_db_session.execute.side_effect = mock_execute
 
         current_price = 90.0
@@ -173,16 +173,16 @@ class TestSMSIntegration:
         mock_sms_service.send_alert_sms.assert_called_once()
         mock_websocket_manager.send_alert_to_user.assert_called_once()
 
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
     async def test_sms_notification_without_phone_number(self):
         """Test SMS notification handling when user has no phone number."""
-        
+
         alert_processor = AlertProcessingService()
         mock_sms_service = AsyncMock()
         alert_processor.sms_service = mock_sms_service
         alert_processor.email_service = AsyncMock()
         alert_processor.websocket_manager = AsyncMock()
-        
+
         # User without phone number
         user = Mock()
         user.id = 1
@@ -202,6 +202,7 @@ class TestSMSIntegration:
 
         # Mock database session
         mock_db_session = AsyncMock()
+
         def mock_execute(stmt):
             mock_result = AsyncMock()
             if "users" in str(stmt).lower():
@@ -209,7 +210,7 @@ class TestSMSIntegration:
             else:
                 mock_result.scalar_one_or_none.return_value = product
             return mock_result
-        
+
         mock_db_session.execute.side_effect = mock_execute
 
         # Test SMS notification with no phone number
@@ -218,5 +219,5 @@ class TestSMSIntegration:
         # SMS service should still be called but with None phone number
         mock_sms_service.send_alert_sms.assert_called_once_with(
             phone_number=None,
-            message="Price Alert: Test Product is now $90.0 (target: None)"
+            message="Price Alert: Test Product is now $90.0 (target: None)",
         )

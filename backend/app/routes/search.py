@@ -4,8 +4,8 @@ Provides comprehensive search capabilities for products with full-text search,
 filtering, sorting, faceted search, and search analytics.
 """
 
-import time
 import hashlib
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 
 from app.database import get_session
 from app.models import PriceRecord, Product, Provider
-from app.services.cache import cache_service
 from app.schemas.search import (
     AvailabilityFacet,
     CategoryFacet,
@@ -34,6 +33,7 @@ from app.schemas.search import (
     SearchVolumeMetric,
     TopSearchCategory,
 )
+from app.services.cache import cache_service
 
 router = APIRouter()
 
@@ -224,7 +224,7 @@ def build_facets(session: Session, query: Optional[str], facet_types: List[str])
             {"value": cat or "Uncategorized", "count": count}
             for cat, count in category_facets
         ]
-    
+
     if "brand" in facet_types:
         brand_facets = (
             session.query(Product.brand, func.count(Product.id))
@@ -418,13 +418,13 @@ async def search_products(
 
     # Use either q or query parameter
     search_query_text = q or query
-    
+
     # Check cache if enabled
     if use_cache:
         # Generate cache key from all search parameters
         cache_key_data = f"{search_query_text}:{category}:{min_price}:{max_price}:{available_only}:{status}:{provider}:{page}:{per_page}:{sort}:{facets}"
         cache_key = hashlib.md5(cache_key_data.encode()).hexdigest()
-        
+
         try:
             await cache_service.connect()
             cached_result = await cache_service.get_cached_search_results(cache_key)
@@ -623,15 +623,17 @@ async def search_products(
         # Handle spelling suggestions for common misspellings
         if search_query_text == "ipone":
             response_data["spelling_suggestion"] = "iPhone"
-            
+
         # Cache the results if caching is enabled
         if use_cache:
             try:
                 cache_key_data = f"{search_query_text}:{category}:{min_price}:{max_price}:{available_only}:{status}:{provider}:{page}:{per_page}:{sort}:{facets}"
                 cache_key = hashlib.md5(cache_key_data.encode()).hexdigest()
-                
+
                 await cache_service.connect()
-                await cache_service.cache_search_results(cache_key, response_data, ttl_seconds=300)
+                await cache_service.cache_search_results(
+                    cache_key, response_data, ttl_seconds=300
+                )
                 await cache_service.disconnect()
             except Exception:
                 pass  # Cache failure shouldn't break the search
@@ -689,10 +691,10 @@ async def get_search_suggestions(
         suggestion_time = calculate_search_time(start_time)
 
         return SearchSuggestionsResponse(
-            suggestions=suggestion_list, 
-            query=q, 
+            suggestions=suggestion_list,
+            query=q,
             suggestion_time_ms=suggestion_time,
-            response_time_ms=suggestion_time  # For performance test compatibility
+            response_time_ms=suggestion_time,  # For performance test compatibility
         )
 
     except Exception as e:

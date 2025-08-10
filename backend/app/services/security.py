@@ -175,7 +175,7 @@ class SecurityService:
             for suspicious in ["admin", "config", "backup", ".env"]
         ):
             return True
-            
+
         # Check for path traversal in the path
         if self.detect_path_traversal(path):
             return True
@@ -190,7 +190,9 @@ class SecurityService:
         headers = request_data.get("headers", {})
         forwarded_for = headers.get("X-Forwarded-For", "")
         # Count the number of IPs (commas + 1), 3 or more IPs is suspicious
-        if forwarded_for and forwarded_for.count(",") >= 2:  # 3 or more IPs is suspicious
+        if (
+            forwarded_for and forwarded_for.count(",") >= 2
+        ):  # 3 or more IPs is suspicious
             return True
 
         return False

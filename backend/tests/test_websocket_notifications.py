@@ -76,7 +76,7 @@ class TestWebSocketConnection:
             # First receive connection established message
             connection_msg = websocket.receive_json()
             assert connection_msg["type"] == "connection_established"
-            
+
             # Send ping
             websocket.send_json({"type": "ping"})
 
@@ -446,14 +446,15 @@ class TestNotificationChannels:
         # Mock email service
         with patch("app.services.email.EmailService.send_alert_email") as mock_email:
             mock_email.return_value = True
-            
+
             # Create price record that triggers alert
             from app.models import Provider
+
             provider = Provider(name="Test Provider", base_url="https://test.com")
             db_session.add(provider)
             await db_session.commit()
             await db_session.refresh(provider)
-            
+
             price_record = PriceRecord(
                 product_id=product.id,
                 provider_id=provider.id,
@@ -463,9 +464,10 @@ class TestNotificationChannels:
             )
             db_session.add(price_record)
             await db_session.commit()
-            
+
             # Trigger alert processing
             from app.services.alert_processor import alert_processor
+
             await alert_processor.process_new_price_record(db_session, price_record)
 
             # Verify email was sent

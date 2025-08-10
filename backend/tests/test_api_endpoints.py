@@ -157,12 +157,17 @@ class TestProductAPI:
         response_data = response.json()
         # Check in the custom error format used by this API
         assert (
-            "validation error" in response_data.get("detail", "").lower() or
-            "validation error" in response_data.get("message", "").lower() or
-            "Product name must be at least 2 characters long" in response_data.get("detail", "") or
-            "Product name must be at least 2 characters long" in response_data.get("message", "") or
-            any("Product name must be at least 2 characters long" in str(error.get("msg", ""))
-                for error in response_data.get("validation_errors", []))
+            "validation error" in response_data.get("detail", "").lower()
+            or "validation error" in response_data.get("message", "").lower()
+            or "Product name must be at least 2 characters long"
+            in response_data.get("detail", "")
+            or "Product name must be at least 2 characters long"
+            in response_data.get("message", "")
+            or any(
+                "Product name must be at least 2 characters long"
+                in str(error.get("msg", ""))
+                for error in response_data.get("validation_errors", [])
+            )
         )
 
     def test_get_products_list(self, client, sample_products):
@@ -250,10 +255,12 @@ class TestProviderAPI:
         response_data = response.json()
         # Check in the custom error format used by this API
         assert (
-            "Rate limit must be greater than 0" in response_data.get("detail", "") or
-            "Rate limit must be greater than 0" in response_data.get("message", "") or
-            any("Rate limit must be greater than 0" in str(error.get("msg", "")) 
-                for error in response_data.get("validation_errors", []))
+            "Rate limit must be greater than 0" in response_data.get("detail", "")
+            or "Rate limit must be greater than 0" in response_data.get("message", "")
+            or any(
+                "Rate limit must be greater than 0" in str(error.get("msg", ""))
+                for error in response_data.get("validation_errors", [])
+            )
         )
 
     def test_get_providers_list(self, client):

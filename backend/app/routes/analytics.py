@@ -45,7 +45,9 @@ async def get_price_trends_simple(
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    aggregation: str = Query("daily", description="Aggregation level (daily, weekly, monthly)"),
+    aggregation: str = Query(
+        "daily", description="Aggregation level (daily, weekly, monthly)"
+    ),
     use_cache: bool = Query(True, description="Use cached data if available"),
     session: Session = Depends(get_session),
 ):
@@ -69,7 +71,9 @@ async def get_price_trends_simple(
         try:
             end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
         except ValueError:
-            raise HTTPException(status_code=422, detail="Invalid end_date format. Use YYYY-MM-DD.")
+            raise HTTPException(
+                status_code=422, detail="Invalid end_date format. Use YYYY-MM-DD."
+            )
 
     if not start_date:
         # If no start_date provided, use days parameter or 30 days default
@@ -78,7 +82,9 @@ async def get_price_trends_simple(
         try:
             start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
         except ValueError:
-            raise HTTPException(status_code=422, detail="Invalid start_date format. Use YYYY-MM-DD.")
+            raise HTTPException(
+                status_code=422, detail="Invalid start_date format. Use YYYY-MM-DD."
+            )
 
     # Create cache key including all parameters
     cache_key = f"price_trends:{product_id}:{start_date_obj.strftime('%Y-%m-%d')}:{end_date_obj.strftime('%Y-%m-%d')}:{aggregation}"
@@ -93,7 +99,9 @@ async def get_price_trends_simple(
             try:
                 return PriceTrendsResponse(**cached_data)
             except Exception as e:
-                logger.error(f"Failed to reconstruct PriceTrendsResponse from cache: {e}")
+                logger.error(
+                    f"Failed to reconstruct PriceTrendsResponse from cache: {e}"
+                )
                 # Continue to generate fresh data
 
     # Get price records for the time period
@@ -712,42 +720,46 @@ async def export_price_data(
     session: Session = Depends(get_session),
 ):
     """Export price data in various formats."""
-    from fastapi.responses import StreamingResponse
     import json
-    
+
+    from fastapi.responses import StreamingResponse
+
     # Get price data from the last N days
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
-    
+
     price_records = (
         session.query(PriceRecord)
         .filter(PriceRecord.recorded_at >= start_date)
         .order_by(PriceRecord.recorded_at.desc())
         .all()
     )
-    
+
     if format.lower() == "json":
+
         def generate_json():
             yield "["
             for i, record in enumerate(price_records):
                 if i > 0:
                     yield ","
-                yield json.dumps({
-                    "product_id": record.product_id,
-                    "provider_id": record.provider_id,
-                    "price": record.price,
-                    "currency": record.currency,
-                    "is_available": record.is_available,
-                    "recorded_at": record.recorded_at.isoformat(),
-                })
+                yield json.dumps(
+                    {
+                        "product_id": record.product_id,
+                        "provider_id": record.provider_id,
+                        "price": record.price,
+                        "currency": record.currency,
+                        "is_available": record.is_available,
+                        "recorded_at": record.recorded_at.isoformat(),
+                    }
+                )
             yield "]"
-        
+
         return StreamingResponse(
             generate_json(),
             media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=price_data.json"}
+            headers={"Content-Disposition": "attachment; filename=price_data.json"},
         )
-    
+
     # For other formats, return JSON by default
     data = [
         {
@@ -760,42 +772,44 @@ async def export_price_data(
         }
         for record in price_records
     ]
-    
+
     return {"data": data, "count": len(data), "exported_days": days}
 
 
 @router.get("/complex-report")
 async def get_complex_report(
     days: int = Query(30, ge=1, le=365, description="Number of days for the report"),
-    include_aggregations: bool = Query(False, description="Include complex aggregations"),
+    include_aggregations: bool = Query(
+        False, description="Include complex aggregations"
+    ),
     session: Session = Depends(get_session),
 ):
     """Get a complex analytics report (potentially slow query for testing)."""
     import time
-    
+
     # Simulate a complex query that might be slow
     start_time = time.time()
-    
+
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
-    
+
     # Basic data
     total_records = (
         session.query(func.count(PriceRecord.id))
         .filter(PriceRecord.recorded_at >= start_date)
         .scalar()
     )
-    
+
     report_data = {
         "report_period_days": days,
         "total_price_records": total_records,
         "report_generated_at": datetime.utcnow().isoformat(),
     }
-    
+
     if include_aggregations:
         # Add some more complex queries to simulate slow operations
         time.sleep(0.1)  # Simulate slow query
-        
+
         # Get price statistics by product
         product_stats = (
             session.query(
@@ -803,13 +817,13 @@ async def get_complex_report(
                 func.avg(PriceRecord.price).label("avg_price"),
                 func.min(PriceRecord.price).label("min_price"),
                 func.max(PriceRecord.price).label("max_price"),
-                func.count(PriceRecord.id).label("record_count")
+                func.count(PriceRecord.id).label("record_count"),
             )
             .filter(PriceRecord.recorded_at >= start_date)
             .group_by(PriceRecord.product_id)
             .all()
         )
-        
+
         report_data["aggregations"] = {
             "product_statistics": [
                 {
@@ -817,13 +831,13 @@ async def get_complex_report(
                     "avg_price": float(stat.avg_price) if stat.avg_price else 0,
                     "min_price": float(stat.min_price) if stat.min_price else 0,
                     "max_price": float(stat.max_price) if stat.max_price else 0,
-                    "record_count": stat.record_count
+                    "record_count": stat.record_count,
                 }
                 for stat in product_stats[:10]  # Limit to top 10
             ]
         }
-    
+
     processing_time = (time.time() - start_time) * 1000  # Convert to ms
     report_data["processing_time_ms"] = round(processing_time, 2)
-    
+
     return report_data

@@ -3,13 +3,13 @@ Product management routes with advanced filtering and price tracking.
 """
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.services.product_service import ProductService
-
 
 router = APIRouter()
 product_service = ProductService()
@@ -63,7 +63,7 @@ async def get_products(
     sort_by: Optional[str] = Query(None),
     sort_order: str = Query("asc"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, le=100)
+    page_size: int = Query(20, le=100),
 ):
     """Get products with filtering and pagination."""
     try:
@@ -77,7 +77,7 @@ async def get_products(
             sort_by=sort_by,
             sort_order=sort_order,
             page=page,
-            page_size=page_size
+            page_size=page_size,
         )
         return products
     except Exception as e:
@@ -86,8 +86,7 @@ async def get_products(
 
 @router.post("/search")
 async def search_products_advanced(
-    request: ProductSearchRequest,
-    db: AsyncSession = Depends(get_db)
+    request: ProductSearchRequest, db: AsyncSession = Depends(get_db)
 ):
     """Advanced product search with text query."""
     try:
@@ -102,7 +101,7 @@ async def search_products_advanced(
             sort_by=request.sort_by,
             sort_order=request.sort_order,
             page=request.page,
-            page_size=request.page_size
+            page_size=request.page_size,
         )
         return products
     except Exception as e:
@@ -111,8 +110,7 @@ async def search_products_advanced(
 
 @router.post("/")
 async def create_product(
-    request: ProductCreateRequest,
-    db: AsyncSession = Depends(get_db)
+    request: ProductCreateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Create a new product."""
     try:
@@ -124,7 +122,7 @@ async def create_product(
             description=request.description,
             url=request.url,
             provider_id=request.provider_id,
-            current_price=request.current_price
+            current_price=request.current_price,
         )
         return {"success": True, "product": product}
     except Exception as e:
@@ -132,10 +130,7 @@ async def create_product(
 
 
 @router.get("/{product_id}")
-async def get_product(
-    product_id: int,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
     """Get a specific product by ID."""
     try:
         product = await product_service.get_product_by_id(db, product_id)
@@ -150,9 +145,7 @@ async def get_product(
 
 @router.put("/{product_id}")
 async def update_product(
-    product_id: int,
-    request: ProductUpdateRequest,
-    db: AsyncSession = Depends(get_db)
+    product_id: int, request: ProductUpdateRequest, db: AsyncSession = Depends(get_db)
 ):
     """Update a product."""
     try:
@@ -168,10 +161,7 @@ async def update_product(
 
 
 @router.delete("/{product_id}")
-async def delete_product(
-    product_id: int,
-    db: AsyncSession = Depends(get_db)
-):
+async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
     """Soft delete a product."""
     try:
         success = await product_service.soft_delete_product(db, product_id)
@@ -186,9 +176,7 @@ async def delete_product(
 
 @router.post("/{product_id}/prices")
 async def add_price_record(
-    product_id: int,
-    request: PriceRecordRequest,
-    db: AsyncSession = Depends(get_db)
+    product_id: int, request: PriceRecordRequest, db: AsyncSession = Depends(get_db)
 ):
     """Add a new price record for a product."""
     try:
@@ -204,7 +192,7 @@ async def add_price_record(
 async def get_price_history(
     product_id: int,
     days: int = Query(30, ge=1, le=365),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Get price history for a product."""
     try:
@@ -226,8 +214,7 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
 
 @router.get("/meta/brands")
 async def get_brands(
-    category: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db)
+    category: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)
 ):
     """Get all brands with product counts, optionally filtered by category."""
     try:

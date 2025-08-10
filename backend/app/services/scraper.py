@@ -149,7 +149,7 @@ class ScrapingService:
         try:
             # Apply rate limiting before fetching
             await self._rate_limit()
-            
+
             html_content = await self._fetch_page(url)
             soup = BeautifulSoup(html_content, "html.parser")
 

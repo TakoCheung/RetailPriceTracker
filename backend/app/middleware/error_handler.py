@@ -8,11 +8,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from app.exceptions import BaseAPIException, RateLimitError
-from app.services.logging import get_logger
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from app.exceptions import BaseAPIException, RateLimitError
+from app.services.logging import get_logger
 
 
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):

@@ -13,7 +13,7 @@ This iteration focuses on performance improvements and caching strategies:
 
 import time
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from app.database import get_session
@@ -199,10 +199,14 @@ class TestRedisCaching:
     """Test Redis-based caching functionality."""
 
     @patch("app.services.cache.cache_service")
-    def test_cache_product_data(self, mock_cache_service, client, performance_test_data):
+    def test_cache_product_data(
+        self, mock_cache_service, client, performance_test_data
+    ):
         """Test caching of frequently accessed product data."""
         # Mock async cache methods
-        mock_cache_service.get_cached_product = AsyncMock(return_value=None)  # Cache miss
+        mock_cache_service.get_cached_product = AsyncMock(
+            return_value=None
+        )  # Cache miss
         mock_cache_service.cache_product = AsyncMock(return_value=True)
 
         product_id = performance_test_data["products"][0].id
@@ -223,13 +227,16 @@ class TestRedisCaching:
         """Test caching of price trend calculations."""
         # Clear any existing cache data first
         import asyncio
+
         from app.services.cache import cache_service
+
         async def clear_cache():
             await cache_service.connect()
             await cache_service.flush_all()
             await cache_service.disconnect()
+
         asyncio.run(clear_cache())
-        
+
         # Mock the cache service instance
         mock_cache_service = AsyncMock()
         mock_cache_service.connect = AsyncMock()
@@ -294,10 +301,12 @@ class TestRedisCaching:
         mock_cache_service.get_cached_product.assert_called_once()
 
     @patch("app.routes.products.cache_service")
-    def test_cache_invalidation(self, mock_cache_service, client, performance_test_data):
+    def test_cache_invalidation(
+        self, mock_cache_service, client, performance_test_data
+    ):
         """Test cache invalidation when data is updated."""
         mock_cache_service.invalidate_product = AsyncMock(return_value=True)
-        
+
         product_id = performance_test_data["products"][0].id
 
         # Update product data - should invalidate cache
@@ -317,7 +326,9 @@ class TestRedisCaching:
         # Mock the cache service methods
         mock_cache_service.connect = AsyncMock()
         mock_cache_service.disconnect = AsyncMock()
-        mock_cache_service.get_cached_search_results = AsyncMock(return_value=None)  # Cache miss
+        mock_cache_service.get_cached_search_results = AsyncMock(
+            return_value=None
+        )  # Cache miss
         mock_cache_service.cache_search_results = AsyncMock(return_value=True)
 
         # Perform search with caching enabled
@@ -335,13 +346,15 @@ class TestRedisCaching:
         mock_cache_service.cache_search_results.assert_called()
 
     @patch("app.services.cache.cache_service")
-    def test_cache_expiration_policy(self, mock_cache_service, client, performance_test_data):
+    def test_cache_expiration_policy(
+        self, mock_cache_service, client, performance_test_data
+    ):
         """Test different cache expiration policies for different data types."""
         mock_cache_service.get_cached_product = AsyncMock(return_value=None)
         mock_cache_service.cache_product = AsyncMock(return_value=True)
-        
+
         product_id = performance_test_data["products"][0].id
-        
+
         # Product data should have longer TTL
         response = client.get(f"/api/products/{product_id}?use_cache=true")
         assert response.status_code == 200

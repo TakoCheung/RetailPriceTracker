@@ -2,9 +2,9 @@
 Utility functions for testing alert processing functionality.
 """
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.services.alert_processor import alert_processor
 from app.models import PriceRecord
+from app.services.alert_processor import alert_processor
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def trigger_alert_processing(db_session: AsyncSession, price_record: PriceRecord):

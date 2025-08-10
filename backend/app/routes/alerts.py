@@ -174,8 +174,9 @@ def delete_alert(alert_id: int, session: Session = Depends(get_session)):
 @router.post("/process")
 def process_alerts(session: Session = Depends(get_session)):
     """Process pending alerts and trigger notifications."""
-    from ..models import PriceRecord
     from datetime import timedelta
+
+    from ..models import PriceRecord
 
     # Get active alerts
     active_alerts = session.exec(select(PriceAlert).where(PriceAlert.is_active)).all()
@@ -212,13 +213,20 @@ def process_alerts(session: Session = Depends(get_session)):
                 if alert.updated_at:
                     cooldown_period = timedelta(minutes=alert.cooldown_minutes)
                     time_since_last_trigger = datetime.utcnow() - alert.updated_at
-                    
+
                     if time_since_last_trigger < cooldown_period:
-                        cooldown_alerts.append({
-                            "alert_id": alert.id,
-                            "product_id": alert.product_id,
-                            "remaining_cooldown_minutes": int((cooldown_period - time_since_last_trigger).total_seconds() / 60)
-                        })
+                        cooldown_alerts.append(
+                            {
+                                "alert_id": alert.id,
+                                "product_id": alert.product_id,
+                                "remaining_cooldown_minutes": int(
+                                    (
+                                        cooldown_period - time_since_last_trigger
+                                    ).total_seconds()
+                                    / 60
+                                ),
+                            }
+                        )
                         continue
 
                 triggered_alerts.append(
@@ -230,13 +238,13 @@ def process_alerts(session: Session = Depends(get_session)):
                         "condition": alert.condition,
                     }
                 )
-                
+
                 # Update the alert timestamp for cooldown tracking
                 alert.updated_at = datetime.utcnow()
                 session.add(alert)
 
     session.commit()
-    
+
     return {
         "alerts_processed": len(active_alerts),
         "triggered_alerts": triggered_alerts,

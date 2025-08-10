@@ -147,7 +147,10 @@ def sample_monitoring_data(test_db):
             user_id=user.id,
             alert_type="price_drop",
             threshold_price=10.0,
-            notification_channels=["email", "websocket"],  # Include both channels for testing
+            notification_channels=[
+                "email",
+                "websocket",
+            ],  # Include both channels for testing
             is_active=True,
             created_at=datetime.utcnow(),
         )
@@ -173,7 +176,9 @@ class TestWebSocketPriceUpdates:
 
     def test_websocket_connection_established(self, websocket_client):
         """Test WebSocket connection can be established."""
-        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
+        with websocket_client.websocket_connect(
+            "/ws?token=valid_jwt_token"
+        ) as websocket:
             # Should receive initial connection message
             data = websocket.receive_text()
             assert "connection_established" in data or "connected" in data.lower()
@@ -182,11 +187,16 @@ class TestWebSocketPriceUpdates:
         self, websocket_client, sample_monitoring_data
     ):
         """Test WebSocket receives real-time price updates."""
-        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
+        with websocket_client.websocket_connect(
+            "/ws?token=valid_jwt_token"
+        ) as websocket:
             # Should receive initial connection message
             initial_message = websocket.receive_text()
-            assert "connected" in initial_message.lower() or "connection_established" in initial_message
-            
+            assert (
+                "connected" in initial_message.lower()
+                or "connection_established" in initial_message
+            )
+
             # Test subscription to price updates
             websocket.send_json(
                 {
@@ -207,7 +217,9 @@ class TestWebSocketPriceUpdates:
         """Test WebSocket can handle multiple concurrent subscribers."""
         with (
             websocket_client.websocket_connect("/ws?token=valid_jwt_token") as ws1,
-            websocket_client.websocket_connect("/ws?token=valid_jwt_token_viewer") as ws2,
+            websocket_client.websocket_connect(
+                "/ws?token=valid_jwt_token_viewer"
+            ) as ws2,
         ):
             # Both should receive connection confirmations
             data1 = ws1.receive_text()
@@ -220,10 +232,12 @@ class TestWebSocketPriceUpdates:
         self, websocket_client, sample_monitoring_data
     ):
         """Test WebSocket price update message format."""
-        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
+        with websocket_client.websocket_connect(
+            "/ws?token=valid_jwt_token"
+        ) as websocket:
             # Receive connection message first
             websocket.receive_text()
-            
+
             # Subscribe to product updates
             websocket.send_json(
                 {
@@ -242,7 +256,9 @@ class TestWebSocketPriceUpdates:
 
     def test_websocket_handles_disconnection_gracefully(self, websocket_client):
         """Test WebSocket handles client disconnection gracefully."""
-        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
+        with websocket_client.websocket_connect(
+            "/ws?token=valid_jwt_token"
+        ) as websocket:
             websocket.receive_text()  # Initial connection message
             # Websocket automatically closes when exiting context
 
@@ -515,7 +531,7 @@ class TestNotificationSystem:
         """Test sending WebSocket notifications."""
         # Clear rate limits before test
         client.delete("/api/notifications/rate-limits")
-        
+
         mock_notify.return_value = True
 
         notification_data = {
@@ -576,7 +592,7 @@ class TestNotificationSystem:
         """Test notification rate limiting to prevent spam."""
         # Clear rate limits before test
         client.delete("/api/notifications/rate-limits")
-        
+
         user_id = sample_monitoring_data["user"].id
 
         # Send multiple notifications rapidly

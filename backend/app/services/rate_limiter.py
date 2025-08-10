@@ -82,7 +82,7 @@ class RateLimiterService:
         # Track whether burst_limit was explicitly provided
         explicit_burst = burst_limit is not None
         effective_burst = burst_limit or requests_per_minute * 2
-        
+
         self.rate_limits[endpoint] = {
             "requests_per_minute": requests_per_minute,
             "burst_limit": effective_burst,
@@ -157,7 +157,7 @@ class RateLimiterService:
 
         # Choose the limit to enforce
         current_request_count = len(self.user_requests[key])
-        
+
         # If burst limit was explicitly set, use it. Otherwise use requests_per_minute
         if explicit_burst:
             limit_to_check = burst_limit

@@ -21,7 +21,7 @@ class TestAlertProcessingService:
         mock.send_alert_email = AsyncMock()
         return mock
 
-    @pytest.fixture  
+    @pytest.fixture
     def mock_sms_service(self):
         """Mock SMS service."""
         mock = AsyncMock()
@@ -44,7 +44,9 @@ class TestAlertProcessingService:
         return mock
 
     @pytest.fixture
-    def alert_processor(self, mock_email_service, mock_sms_service, mock_websocket_manager):
+    def alert_processor(
+        self, mock_email_service, mock_sms_service, mock_websocket_manager
+    ):
         """Create AlertProcessingService with mocked dependencies."""
         processor = AlertProcessingService()
         # Replace the services with mocks
@@ -114,7 +116,14 @@ class TestAlertProcessingService:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_multi_channel_notification_trigger(self, alert_processor, mock_email_service, mock_sms_service, mock_websocket_manager, mock_db_session):
+    async def test_multi_channel_notification_trigger(
+        self,
+        alert_processor,
+        mock_email_service,
+        mock_sms_service,
+        mock_websocket_manager,
+        mock_db_session,
+    ):
         """Test triggering notifications across multiple channels."""
         # Create test data
         user = Mock()
@@ -159,7 +168,14 @@ class TestAlertProcessingService:
         mock_websocket_manager.send_alert_to_user.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_email_only_notification(self, alert_processor, mock_email_service, mock_sms_service, mock_websocket_manager, mock_db_session):
+    async def test_email_only_notification(
+        self,
+        alert_processor,
+        mock_email_service,
+        mock_sms_service,
+        mock_websocket_manager,
+        mock_db_session,
+    ):
         """Test triggering email-only notifications."""
         # Create test data
         user = Mock()

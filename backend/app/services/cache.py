@@ -54,12 +54,14 @@ class CacheService:
         """Set a value in cache with expiration time"""
         try:
             await self.connect()
-            if hasattr(value, 'model_dump'):
+            if hasattr(value, "model_dump"):
                 # Handle Pydantic models
-                serializable_value = value.model_dump(mode='json')
+                serializable_value = value.model_dump(mode="json")
             else:
                 serializable_value = value
-            await self.redis_client.set(key, json.dumps(serializable_value, default=str), ex=expire)
+            await self.redis_client.set(
+                key, json.dumps(serializable_value, default=str), ex=expire
+            )
         except Exception as e:
             logger.error(f"Error setting cache: {e}")
         finally:
@@ -73,7 +75,7 @@ class CacheService:
             if value:
                 # Ensure we're working with string data
                 if isinstance(value, bytes):
-                    value = value.decode('utf-8')
+                    value = value.decode("utf-8")
                 # Parse JSON
                 return json.loads(value)
             return None
@@ -125,8 +127,8 @@ class CacheService:
             await self.connect()
             pipe = self.redis_client.pipeline()
             for key, value in data.items():
-                if hasattr(value, 'model_dump'):
-                    serializable_value = value.model_dump(mode='json')
+                if hasattr(value, "model_dump"):
+                    serializable_value = value.model_dump(mode="json")
                 else:
                     serializable_value = value
                 pipe.set(key, json.dumps(serializable_value, default=str), ex=expire)
@@ -142,7 +144,9 @@ class CacheService:
         cache_key = f"product:{product_id}"
         return await self.get(cache_key)
 
-    async def cache_product(self, product_id: int, product_data: dict, ttl_seconds: int = 1800) -> None:
+    async def cache_product(
+        self, product_id: int, product_data: dict, ttl_seconds: int = 1800
+    ) -> None:
         """Cache product data with TTL"""
         cache_key = f"product:{product_id}"
         await self.set(cache_key, product_data, expire=ttl_seconds)
@@ -157,7 +161,9 @@ class CacheService:
         """Get cached search results by key"""
         return await self.get(f"search:{cache_key}")
 
-    async def cache_search_results(self, cache_key: str, results: dict, ttl_seconds: int = 300) -> None:
+    async def cache_search_results(
+        self, cache_key: str, results: dict, ttl_seconds: int = 300
+    ) -> None:
         """Cache search results with TTL (shorter TTL for search results)"""
         await self.set(f"search:{cache_key}", results, expire=ttl_seconds)
 
@@ -179,7 +185,7 @@ class CacheService:
         try:
             await self.connect()
             info = await self.redis_client.info()
-            
+
             # Extract relevant cache statistics
             stats = {
                 "connected_clients": info.get("connected_clients", 0),
@@ -196,9 +202,9 @@ class CacheService:
                 "uptime_in_seconds": info.get("uptime_in_seconds", 0),
                 "redis_version": info.get("redis_version", "unknown"),
                 "redis_mode": info.get("redis_mode", "standalone"),
-                "role": info.get("role", "master")
+                "role": info.get("role", "master"),
             }
-            
+
             # Calculate hit ratio
             hits = stats["keyspace_hits"]
             misses = stats["keyspace_misses"]
@@ -207,7 +213,7 @@ class CacheService:
                 stats["hit_ratio"] = hits / total_requests
             else:
                 stats["hit_ratio"] = 0.0
-            
+
             return stats
         except Exception as e:
             logger.error(f"Error getting cache stats: {e}")
@@ -228,7 +234,7 @@ class CacheService:
                 "redis_version": "unknown",
                 "redis_mode": "standalone",
                 "role": "master",
-                "error": str(e)
+                "error": str(e),
             }
         finally:
             await self.disconnect()
@@ -237,21 +243,21 @@ class CacheService:
         """Get detailed cache information for monitoring"""
         try:
             await self.connect()
-            
+
             # Get database info
             db_info = await self.redis_client.info("keyspace")
-            
+
             # Get memory info
             memory_info = await self.redis_client.info("memory")
-            
+
             # Get server info
             server_info = await self.redis_client.info("server")
-            
+
             # Count keys by pattern
             product_keys = len(await self.redis_client.keys("product:*"))
             search_keys = len(await self.redis_client.keys("search:*"))
             total_keys = await self.redis_client.dbsize()
-            
+
             return {
                 "database": db_info,
                 "memory": memory_info,
@@ -260,16 +266,13 @@ class CacheService:
                     "product_keys": product_keys,
                     "search_keys": search_keys,
                     "total_keys": total_keys,
-                    "other_keys": max(0, total_keys - product_keys - search_keys)
+                    "other_keys": max(0, total_keys - product_keys - search_keys),
                 },
-                "connection_status": "connected" if self._connected else "disconnected"
+                "connection_status": "connected" if self._connected else "disconnected",
             }
         except Exception as e:
             logger.error(f"Error getting cache info: {e}")
-            return {
-                "error": str(e),
-                "connection_status": "error"
-            }
+            return {"error": str(e), "connection_status": "error"}
         finally:
             await self.disconnect()
 
@@ -278,4 +281,4 @@ class CacheService:
 cache_service = CacheService()
 
 # Export the class for imports
-__all__ = ['CacheService', 'cache_service']
+__all__ = ["CacheService", "cache_service"]

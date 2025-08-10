@@ -17,19 +17,20 @@ def send_websocket_notification(user_id: int, message: Dict) -> bool:
     """Send WebSocket notification."""
     # Mock implementation for testing
     print(f"Sending WebSocket notification to user {user_id}: {message}")
-    
+
     # For testing, also call the notify_subscribers function that tests expect
     import asyncio
+
     from app.utils.websocket import notify_subscribers
-    
+
     # Create a mock price data for notification
     price_data = {
         "user_id": user_id,
         "message": message.get("message", ""),
         "timestamp": str(datetime.utcnow()),
-        "type": "price_alert"
+        "type": "price_alert",
     }
-    
+
     # Run the async notify_subscribers function
     try:
         loop = asyncio.get_event_loop()
@@ -37,7 +38,7 @@ def send_websocket_notification(user_id: int, message: Dict) -> bool:
     except RuntimeError:
         # If no event loop is running, create a new one
         asyncio.run(notify_subscribers(user_id, price_data))
-    
+
     return True
 
 

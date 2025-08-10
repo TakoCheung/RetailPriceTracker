@@ -28,7 +28,7 @@ async def warm_cache(
         popular_products = session.query(Product).limit(10).all()
 
         cache_entries_created = 0
-        
+
         # Cache product data
         for product in popular_products:
             cache_key = f"product:{product.id}"
@@ -47,7 +47,7 @@ async def warm_cache(
         # Warm up recent price data for popular products
         for product in popular_products[:5]:
             price_cache_key = f"prices:{product.id}:recent"
-            
+
             # Get recent prices
             recent_prices = (
                 session.query(PriceRecord)
@@ -56,7 +56,7 @@ async def warm_cache(
                 .limit(10)
                 .all()
             )
-            
+
             price_data = [
                 {
                     "id": price.id,
@@ -68,7 +68,7 @@ async def warm_cache(
                 }
                 for price in recent_prices
             ]
-            
+
             await cache_service.set(price_cache_key, price_data, expire=300)
             cache_entries_created += 1
 

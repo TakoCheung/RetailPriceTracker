@@ -23,9 +23,9 @@ TEST_DATABASE_URL = os.getenv(
 
 # Create test engines (both async and sync) with better connection settings
 test_engine = create_async_engine(
-    TEST_DATABASE_URL, 
-    echo=False, 
-    future=True, 
+    TEST_DATABASE_URL,
+    echo=False,
+    future=True,
     pool_pre_ping=True,
     pool_recycle=300,
     pool_timeout=30,
@@ -36,11 +36,7 @@ test_engine = create_async_engine(
 # Sync engine for routes that use sync sessions
 sync_test_url = TEST_DATABASE_URL.replace("+asyncpg", "")
 sync_test_engine = create_engine(
-    sync_test_url, 
-    echo=False, 
-    pool_pre_ping=True,
-    pool_size=1,
-    max_overflow=0
+    sync_test_url, echo=False, pool_pre_ping=True, pool_size=1, max_overflow=0
 )
 
 TestAsyncSessionLocal = sessionmaker(
@@ -56,13 +52,13 @@ TestSyncSessionLocal = sessionmaker(
 async def setup_test_database():
     """Setup test database tables once per test session."""
     from sqlmodel import SQLModel
-    
+
     # Create all tables
     async with test_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-    
+
     yield
-    
+
     # Clean up after all tests
     async with test_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
@@ -96,7 +92,7 @@ def client():
 
     # Override the dependency
     app.dependency_overrides[get_async_session] = get_test_async_session
-    
+
     try:
         # Create test client with proper async handling
         with TestClient(app) as test_client:
@@ -213,4 +209,5 @@ def freeze_time():
     """Fixture to freeze time for testing."""
     # Mock time freezing for tests that need it
     from unittest.mock import Mock
+
     return Mock()

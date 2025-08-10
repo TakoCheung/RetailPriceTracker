@@ -6,17 +6,16 @@ and comprehensive security features following TDD principles.
 
 from datetime import datetime, timedelta
 from unittest.mock import patch
-from sqlmodel import SQLModel, create_engine
-from sqlalchemy.orm import sessionmaker
-from fastapi.testclient import TestClient
 
 import pytest
-from jose import jwt
-
-from app.main import app
 from app.database import get_session
+from app.main import app
 from app.models import User, UserRole
 from app.services.auth import AuthService
+from fastapi.testclient import TestClient
+from jose import jwt
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel, create_engine
 
 # Create a test engine for auth tests
 AUTH_TEST_DATABASE_URL = "sqlite:///auth_test.db"
@@ -35,7 +34,7 @@ def setup_auth_test_db():
 @pytest.fixture
 def auth_client():
     """Create a test client with database dependency override for auth tests."""
-    
+
     def get_test_session():
         SessionLocal = sessionmaker(bind=auth_test_engine)
         session = SessionLocal()
@@ -227,9 +226,7 @@ class TestPasswordAuthentication:
         for password in invalid_passwords:
             assert auth_service.validate_password_strength(password) is False
 
-    def test_authenticate_user_with_password(
-        self, auth_client, auth_test_data
-    ):
+    def test_authenticate_user_with_password(self, auth_client, auth_test_data):
         """Test user authentication with email and password."""
         # Create user with password
         auth_service = AuthService()
@@ -242,7 +239,7 @@ class TestPasswordAuthentication:
             password_hash=hashed_password,
             role=UserRole.VIEWER,
         )
-        
+
         # Use auth_client's session directly (sync session for auth tests)
         SessionLocal = sessionmaker(bind=auth_test_engine)
         with SessionLocal() as session:

@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -18,7 +18,9 @@ from .routes import (
     preferences,
     price_records,
     products,
+    products_v2,
     providers,
+    providers_v2,
     search,
     users,
 )
@@ -36,9 +38,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         field = " -> ".join(str(loc) for loc in error["loc"])
         message = error["msg"]
         error_details.append(f"{field}: {message}")
-    
+
     detail_message = f"Product validation error: {'; '.join(error_details)}"
-    
+
     return JSONResponse(
         status_code=422,
         content={
@@ -46,15 +48,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "message": detail_message,
             "detail": detail_message,  # FastAPI standard field
             "validation_errors": [
-                {
-                    "loc": list(error["loc"]),
-                    "msg": error["msg"],
-                    "type": error["type"]
-                }
+                {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
                 for error in exc.errors()
             ],
             "timestamp": datetime.utcnow().isoformat(),
-        }
+        },
     )
 
 
@@ -105,7 +103,11 @@ async def detailed_health_check():
 
 
 app.include_router(products.router, prefix="/api/products", tags=["products"])
+app.include_router(products_v2.router, prefix="/api/v2/products", tags=["products-v2"])
 app.include_router(providers.router, prefix="/api/providers", tags=["providers"])
+app.include_router(
+    providers_v2.router, prefix="/api/v2/providers", tags=["providers-v2"]
+)
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(
     price_records.router, prefix="/api/price-records", tags=["price-records"]
