@@ -534,7 +534,10 @@ class TestUserPreferenceModel:
         await db_session.commit()
         await db_session.refresh(preference)
 
-        # Test relationships
+        # Test relationships - need to reload to access relationships in async context
+        await db_session.refresh(preference, ["user"])
+        await db_session.refresh(user, ["preferences"])
+        
         assert preference.user.email == "test@example.com"
         assert user.preferences.default_currency == "USD"
 

@@ -107,9 +107,10 @@ class AlertThresholdConfig(BaseModel):
 class NotificationTemplateConfig(BaseModel):
     """Configuration schema for notification templates."""
 
-    email_template: str
-    sms_template: str
-    webhook_template: str
+    price_drop_template: Optional[str] = None
+    price_increase_template: Optional[str] = None
+    back_in_stock_template: Optional[str] = None
+    out_of_stock_template: Optional[str] = None
 
 
 class BatchUpdateRequest(BaseModel):

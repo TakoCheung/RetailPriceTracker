@@ -140,23 +140,31 @@ def sample_monitoring_data(test_db):
     test_db.commit()
 
     # Create test alerts
+    alerts = []
     for i, product in enumerate(products):
         alert = PriceAlert(
             product_id=product.id,
             user_id=user.id,
             alert_type="price_drop",
             threshold_price=10.0,
+            notification_channels=["email", "websocket"],  # Include both channels for testing
             is_active=True,
             created_at=datetime.utcnow(),
         )
         test_db.add(alert)
+        alerts.append(alert)
     test_db.commit()
+
+    # Refresh alerts to get their IDs
+    for alert in alerts:
+        test_db.refresh(alert)
 
     return {
         "user": user,
         "provider": provider,
         "products": products,
         "base_prices": base_prices,
+        "alerts": alerts,
     }
 
 
@@ -165,37 +173,32 @@ class TestWebSocketPriceUpdates:
 
     def test_websocket_connection_established(self, websocket_client):
         """Test WebSocket connection can be established."""
-        with websocket_client.websocket_connect("/ws") as websocket:
+        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
             # Should receive initial connection message
             data = websocket.receive_text()
-            assert "connected" in data.lower() or "welcome" in data.lower()
+            assert "connection_established" in data or "connected" in data.lower()
 
     def test_websocket_receives_price_updates(
         self, websocket_client, sample_monitoring_data
     ):
         """Test WebSocket receives real-time price updates."""
-        with websocket_client.websocket_connect("/ws") as websocket:
-            # Simulate price update
-            price_update = {
-                "product_id": sample_monitoring_data["products"][0].id,
-                "old_price": 100.00,
-                "new_price": 95.00,
-                "currency": "USD",
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-
-            # Should receive price update notification
-            # Note: In actual implementation, this would be triggered by background task
+        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
+            # Should receive initial connection message
+            initial_message = websocket.receive_text()
+            assert "connected" in initial_message.lower() or "connection_established" in initial_message
+            
+            # Test subscription to price updates
             websocket.send_json(
                 {
-                    "action": "subscribe",
+                    "type": "subscribe",
+                    "channel": "product_prices",
                     "product_id": sample_monitoring_data["products"][0].id,
                 }
             )
 
             # Verify subscription acknowledgment
             response = websocket.receive_json()
-            assert response["type"] == "subscription_confirmed"
+            assert response.get("type") == "subscription_confirmed"
             assert response["product_id"] == sample_monitoring_data["products"][0].id
 
     def test_websocket_handles_multiple_subscribers(
@@ -203,25 +206,29 @@ class TestWebSocketPriceUpdates:
     ):
         """Test WebSocket can handle multiple concurrent subscribers."""
         with (
-            websocket_client.websocket_connect("/ws") as ws1,
-            websocket_client.websocket_connect("/ws") as ws2,
+            websocket_client.websocket_connect("/ws?token=valid_jwt_token") as ws1,
+            websocket_client.websocket_connect("/ws?token=valid_jwt_token_viewer") as ws2,
         ):
             # Both should receive connection confirmations
             data1 = ws1.receive_text()
             data2 = ws2.receive_text()
 
-            assert "connected" in data1.lower() or "welcome" in data1.lower()
-            assert "connected" in data2.lower() or "welcome" in data2.lower()
+            assert "connected" in data1.lower() or "connection_established" in data1
+            assert "connected" in data2.lower() or "connection_established" in data2
 
     def test_websocket_price_update_format(
         self, websocket_client, sample_monitoring_data
     ):
         """Test WebSocket price update message format."""
-        with websocket_client.websocket_connect("/ws") as websocket:
+        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
+            # Receive connection message first
+            websocket.receive_text()
+            
             # Subscribe to product updates
             websocket.send_json(
                 {
-                    "action": "subscribe",
+                    "type": "subscribe",
+                    "channel": "product_prices",
                     "product_id": sample_monitoring_data["products"][0].id,
                 }
             )
@@ -235,7 +242,7 @@ class TestWebSocketPriceUpdates:
 
     def test_websocket_handles_disconnection_gracefully(self, websocket_client):
         """Test WebSocket handles client disconnection gracefully."""
-        with websocket_client.websocket_connect("/ws") as websocket:
+        with websocket_client.websocket_connect("/ws?token=valid_jwt_token") as websocket:
             websocket.receive_text()  # Initial connection message
             # Websocket automatically closes when exiting context
 
@@ -327,8 +334,8 @@ class TestBackgroundPriceMonitoring:
         test_db.add(new_price)
         test_db.commit()
 
-        # Check for price changes
-        response = client.get(f"/api/monitoring/products/{product_id}/changes")
+        # Check for price changes (use 30 days to include all prices)
+        response = client.get(f"/api/monitoring/products/{product_id}/changes?days=30")
 
         assert response.status_code == 200
         data = response.json()
@@ -506,6 +513,9 @@ class TestNotificationSystem:
         self, mock_notify, client, sample_monitoring_data
     ):
         """Test sending WebSocket notifications."""
+        # Clear rate limits before test
+        client.delete("/api/notifications/rate-limits")
+        
         mock_notify.return_value = True
 
         notification_data = {
@@ -564,6 +574,9 @@ class TestNotificationSystem:
 
     def test_notification_rate_limiting(self, client, sample_monitoring_data):
         """Test notification rate limiting to prevent spam."""
+        # Clear rate limits before test
+        client.delete("/api/notifications/rate-limits")
+        
         user_id = sample_monitoring_data["user"].id
 
         # Send multiple notifications rapidly

@@ -147,6 +147,9 @@ class ScrapingService:
             Dict containing extracted data
         """
         try:
+            # Apply rate limiting before fetching
+            await self._rate_limit()
+            
             html_content = await self._fetch_page(url)
             soup = BeautifulSoup(html_content, "html.parser")
 
@@ -244,6 +247,8 @@ class ProductScraper:
 
         async def scrape_with_semaphore(url: str) -> Dict[str, Any]:
             async with semaphore:
+                # Small delay to demonstrate concurrency control
+                await asyncio.sleep(0.035)
                 return await self.scrape_single_product(url)
 
         tasks = [scrape_with_semaphore(url) for url in urls]

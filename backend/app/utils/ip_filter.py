@@ -85,13 +85,15 @@ class IPFilterService:
 
     def is_ip_blocked(self, ip_address: str) -> bool:
         """Check if an IP address is currently blocked."""
+        current_time = datetime.now(timezone.utc)
+        
         # Check permanent blocks
         if ip_address in self.blocked_ips:
             block_data = self.blocked_ips[ip_address]
 
             # Check if temporary block has expired
             if not block_data["permanent"] and block_data["blocked_until"]:
-                if datetime.now(timezone.utc) > block_data["blocked_until"]:
+                if current_time > block_data["blocked_until"]:
                     # Block has expired, remove it
                     del self.blocked_ips[ip_address]
                     return False
@@ -101,7 +103,7 @@ class IPFilterService:
         # Check temporary blocks
         if ip_address in self.temp_blocked_ips:
             block_data = self.temp_blocked_ips[ip_address]
-            if datetime.now(timezone.utc) > block_data["blocked_until"]:
+            if current_time > block_data["blocked_until"]:
                 del self.temp_blocked_ips[ip_address]
                 return False
             return True

@@ -866,8 +866,8 @@ class TestDataIngestionService:
         provider_config = {"provider_id": 1, "name": "Failing Provider"}
 
         with patch.object(
-            service.scraper,
-            "scrape_multiple_products",
+            service.etl_pipeline,
+            "run",
             side_effect=ScrapingError("Network timeout"),
         ):
             result = await service.ingest_from_provider(provider_config)
@@ -898,16 +898,22 @@ class TestDataIngestionService:
         """Test data ingestion monitoring and metrics."""
         service = DataIngestionService()
 
-        # Run some ingestion operations
-        with patch.object(service, "ingest_from_provider") as mock_ingest:
-            mock_ingest.return_value = {
+        # Mock the ETL pipeline to return successful results
+        with patch.object(service.etl_pipeline, "run") as mock_etl:
+            mock_etl.return_value = {
                 "status": "success",
-                "records_created": 10,
-                "processing_time_ms": 1500,
+                "created": 10,
+                "records_extracted": 10,
+                "records_processed": 10,
+                "execution_time_seconds": 1.5,
             }
 
-            await service.ingest_from_provider({"provider_id": 1})
-            await service.ingest_from_provider({"provider_id": 2})
+            # Run some ingestion operations
+            provider_config_1 = {"provider_id": 1, "name": "Provider 1", "products": []}
+            provider_config_2 = {"provider_id": 2, "name": "Provider 2", "products": []}
+
+            await service.ingest_from_provider(provider_config_1)
+            await service.ingest_from_provider(provider_config_2)
 
         # Get monitoring metrics
         metrics = service.get_ingestion_metrics()

@@ -370,7 +370,7 @@ class TestIPFiltering:
         assert service.is_ip_blocked(temp_blocked_ip) is True
 
         # Simulate time passage
-        with patch("datetime.datetime") as mock_datetime:
+        with patch("app.utils.ip_filter.datetime") as mock_datetime:
             mock_datetime.now.return_value = block_until + timedelta(minutes=1)
             assert service.is_ip_blocked(temp_blocked_ip) is False
 
@@ -459,7 +459,7 @@ class TestAPIKeyAuthentication:
         assert service.is_api_key_expired(api_key) is False
 
         # Simulate expiration
-        with patch("datetime.datetime") as mock_datetime:
+        with patch("app.services.security.datetime") as mock_datetime:
             mock_datetime.now.return_value = expires_at + timedelta(days=1)
             assert service.is_api_key_expired(api_key) is True
 

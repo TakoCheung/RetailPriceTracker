@@ -63,7 +63,7 @@ class RateLimiterService:
         # Configuration
         self.global_config = RateLimitConfig()
         self.ip_config = RateLimitConfig()
-        self.enable_adaptive_limiting = False
+        self.adaptive_limiting_enabled = False
         self.adaptive_config = {}
 
         # Exemptions
@@ -79,10 +79,15 @@ class RateLimiterService:
         burst_window_seconds: int = 60,
     ):
         """Configure rate limits for a specific endpoint."""
+        # Track whether burst_limit was explicitly provided
+        explicit_burst = burst_limit is not None
+        effective_burst = burst_limit or requests_per_minute * 2
+        
         self.rate_limits[endpoint] = {
             "requests_per_minute": requests_per_minute,
-            "burst_limit": burst_limit or requests_per_minute * 2,
+            "burst_limit": effective_burst,
             "burst_window_seconds": burst_window_seconds,
+            "explicit_burst": explicit_burst,
         }
 
     def configure_role_based_limits(self, role_limits: Dict[UserRole, Dict[str, int]]):
@@ -142,6 +147,7 @@ class RateLimiterService:
 
         requests_per_minute = endpoint_limits["requests_per_minute"]
         burst_limit = endpoint_limits["burst_limit"]
+        explicit_burst = endpoint_limits.get("explicit_burst", False)
 
         # Create unique key for client-endpoint combination
         key = f"{client_id}:{endpoint}"
@@ -149,10 +155,16 @@ class RateLimiterService:
         # Clean old requests (older than 1 minute)
         self._clean_old_requests(self.user_requests[key], current_time, 60)
 
-        # Simple burst limit check - allow up to burst_limit requests
+        # Choose the limit to enforce
         current_request_count = len(self.user_requests[key])
+        
+        # If burst limit was explicitly set, use it. Otherwise use requests_per_minute
+        if explicit_burst:
+            limit_to_check = burst_limit
+        else:
+            limit_to_check = requests_per_minute
 
-        if current_request_count >= burst_limit:
+        if current_request_count >= limit_to_check:
             return False
 
         # Record the request
@@ -255,7 +267,7 @@ class RateLimiterService:
         reduction_factor: float,
     ):
         """Enable adaptive rate limiting based on system load."""
-        self.enable_adaptive_limiting = True
+        self.adaptive_limiting_enabled = True
         self.adaptive_config = {
             "base_requests_per_minute": base_requests_per_minute,
             "load_threshold": load_threshold,
@@ -268,7 +280,7 @@ class RateLimiterService:
             "requests_per_minute", self.default_requests_per_minute
         )
 
-        if not self.enable_adaptive_limiting:
+        if not self.adaptive_limiting_enabled:
             return base_limit
 
         # Simulate system load check (would integrate with actual monitoring)

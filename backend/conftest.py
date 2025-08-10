@@ -14,20 +14,28 @@ from app.main import app
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, Session, create_engine
 
 # Test database URL - using Docker service name for containerized tests
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql+asyncpg://user:pass@db:5432/prices_test"
 )
 
-# Create test engine
+# Create test engines (both async and sync)
 test_engine = create_async_engine(
     TEST_DATABASE_URL, echo=False, future=True, pool_pre_ping=True
 )
 
+# Sync engine for routes that use sync sessions
+sync_test_url = TEST_DATABASE_URL.replace("+asyncpg", "")
+sync_test_engine = create_engine(sync_test_url, echo=False, pool_pre_ping=True)
+
 TestAsyncSessionLocal = sessionmaker(
     test_engine, class_=AsyncSession, expire_on_commit=False
+)
+
+TestSyncSessionLocal = sessionmaker(
+    bind=sync_test_engine, class_=Session, expire_on_commit=False
 )
 
 
@@ -56,11 +64,11 @@ def client():
     """Test client for FastAPI application."""
     from app.database import get_async_session
 
-    async def get_test_session():
+    async def get_test_async_session():
         async with TestAsyncSessionLocal() as session:
             yield session
 
-    app.dependency_overrides[get_async_session] = get_test_session
+    app.dependency_overrides[get_async_session] = get_test_async_session
 
     with TestClient(app) as test_client:
         yield test_client

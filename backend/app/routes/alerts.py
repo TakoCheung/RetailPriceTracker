@@ -7,8 +7,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlmodel import Session, select
 
 from ..database import get_session
 from ..models import AlertType, PriceAlert, Product, User
@@ -44,18 +43,14 @@ def create_alert(alert_data: AlertCreate, session: Session = Depends(get_session
     _validate_alert_data(alert_data)
 
     # Verify user exists
-    user = session.execute(
-        select(User).where(User.id == alert_data.user_id)
-    ).scalar_one_or_none()
+    user = session.get(User, alert_data.user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     # Verify product exists
-    product = session.execute(
-        select(Product).where(Product.id == alert_data.product_id)
-    ).scalar_one_or_none()
+    product = session.get(Product, alert_data.product_id)
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
@@ -180,11 +175,13 @@ def delete_alert(alert_id: int, session: Session = Depends(get_session)):
 def process_alerts(session: Session = Depends(get_session)):
     """Process pending alerts and trigger notifications."""
     from ..models import PriceRecord
+    from datetime import timedelta
 
     # Get active alerts
     active_alerts = session.exec(select(PriceAlert).where(PriceAlert.is_active)).all()
 
     triggered_alerts = []
+    cooldown_alerts = []
 
     for alert in active_alerts:
         # Get latest price for the product
@@ -200,30 +197,50 @@ def process_alerts(session: Session = Depends(get_session)):
             should_trigger = False
 
             if (
-                alert.condition.value == "below"
+                alert.condition == "below"
                 and latest_price.price <= alert.threshold_price
             ):
                 should_trigger = True
             elif (
-                alert.condition.value == "above"
+                alert.condition == "above"
                 and latest_price.price >= alert.threshold_price
             ):
                 should_trigger = True
 
             if should_trigger:
+                # Check cooldown period
+                if alert.updated_at:
+                    cooldown_period = timedelta(minutes=alert.cooldown_minutes)
+                    time_since_last_trigger = datetime.utcnow() - alert.updated_at
+                    
+                    if time_since_last_trigger < cooldown_period:
+                        cooldown_alerts.append({
+                            "alert_id": alert.id,
+                            "product_id": alert.product_id,
+                            "remaining_cooldown_minutes": int((cooldown_period - time_since_last_trigger).total_seconds() / 60)
+                        })
+                        continue
+
                 triggered_alerts.append(
                     {
                         "alert_id": alert.id,
                         "product_id": alert.product_id,
                         "threshold_price": alert.threshold_price,
                         "current_price": latest_price.price,
-                        "condition": alert.condition.value,
+                        "condition": alert.condition,
                     }
                 )
+                
+                # Update the alert timestamp for cooldown tracking
+                alert.updated_at = datetime.utcnow()
+                session.add(alert)
 
+    session.commit()
+    
     return {
         "alerts_processed": len(active_alerts),
         "triggered_alerts": triggered_alerts,
+        "cooldown_alerts": cooldown_alerts,
     }
 
 

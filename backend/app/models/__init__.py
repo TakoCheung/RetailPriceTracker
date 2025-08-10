@@ -298,7 +298,7 @@ class PriceAlert(SQLModel, table=True):
         # Validate notification_channels
         if "notification_channels" in data:
             channels = data["notification_channels"]
-            valid_channels = {"email", "webhook", "sms"}
+            valid_channels = {"email", "webhook", "sms", "websocket", "push"}
             for channel in channels:
                 if channel not in valid_channels:
                     raise ValueError(f"Invalid notification channel: {channel}")

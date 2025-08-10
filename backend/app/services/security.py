@@ -175,6 +175,10 @@ class SecurityService:
             for suspicious in ["admin", "config", "backup", ".env"]
         ):
             return True
+            
+        # Check for path traversal in the path
+        if self.detect_path_traversal(path):
+            return True
 
         # Check for suspicious user agents
         user_agent = request_data.get("user_agent", "")
@@ -185,7 +189,8 @@ class SecurityService:
         # Check for too many proxy headers (potential anonymization)
         headers = request_data.get("headers", {})
         forwarded_for = headers.get("X-Forwarded-For", "")
-        if forwarded_for.count(",") > 3:  # More than 3 proxies
+        # Count the number of IPs (commas + 1), 3 or more IPs is suspicious
+        if forwarded_for and forwarded_for.count(",") >= 2:  # 3 or more IPs is suspicious
             return True
 
         return False

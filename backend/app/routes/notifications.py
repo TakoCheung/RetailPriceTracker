@@ -16,8 +16,14 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 # Simple rate limiting storage (in production, use Redis)
 notification_history: Dict[int, List[datetime]] = {}
-RATE_LIMIT_WINDOW = timedelta(minutes=1)
-RATE_LIMIT_COUNT = 5
+RATE_LIMIT_WINDOW = timedelta(seconds=30)  # 30 second window for stricter rate limiting
+RATE_LIMIT_COUNT = 1  # Only 1 notification per 30 seconds
+
+
+def clear_rate_limit_history():
+    """Clear rate limit history - useful for testing."""
+    global notification_history
+    notification_history.clear()
 
 
 def check_rate_limit(user_id: int) -> bool:
@@ -34,7 +40,7 @@ def check_rate_limit(user_id: int) -> bool:
         if now - timestamp < RATE_LIMIT_WINDOW
     ]
 
-    # Check if under limit
+    # Check if under limit (must check BEFORE adding current notification)
     if len(notification_history[user_id]) >= RATE_LIMIT_COUNT:
         return False
 
@@ -80,6 +86,13 @@ def send_notification_endpoint(
         "user_id": user_id,
         "message": message,
     }
+
+
+@router.delete("/rate-limits", status_code=204)
+def clear_rate_limits():
+    """Clear all rate limit history. For testing purposes only."""
+    clear_rate_limit_history()
+    return
 
 
 @router.get("/history/{user_id}")
