@@ -65,12 +65,39 @@ A comprehensive retail price tracking service with real-time monitoring, web scr
 - Docker and Docker Compose
 - Git
 
-### Running with Docker Compose
+### Running All Services with One Command
 
+**🚀 Quick Start - Run Everything:**
 ```bash
 git clone https://github.com/TakoCheung/RetailPriceTracker.git
 cd RetailPriceTracker
 docker-compose up --build
+```
+
+**🎯 Single Command Options:**
+
+```bash
+# Option 1: Run all services in foreground (see logs)
+docker-compose up --build
+
+# Option 2: Run all services in background (detached mode)
+docker-compose up -d --build
+
+# Option 3: Run all services with real-time logs
+docker-compose up --build --force-recreate
+
+# Option 4: Run all services and follow logs
+docker-compose up -d --build && docker-compose logs -f
+```
+
+**✅ Verify All Services Started:**
+```bash
+# Check all containers are running
+docker-compose ps
+
+# Check services health
+curl http://localhost:8000/health
+curl http://localhost:3000
 ```
 
 **Services will be available at:**
@@ -78,29 +105,36 @@ docker-compose up --build
 - 🔧 **Backend API**: http://localhost:8000
 - 📊 **API Documentation**: http://localhost:8000/docs
 - 🔍 **Health Check**: http://localhost:8000/health
+- 💾 **Database**: localhost:5432 (internal)
+- 🔴 **Redis**: localhost:6379 (internal)
 
 ### Docker Commands Reference
 
 #### Basic Operations
 ```bash
-# Start all services
-docker-compose up -d
+# 🚀 START ALL SERVICES (Most Common)
+docker-compose up --build              # Foreground with logs
+docker-compose up -d --build           # Background (detached)
+docker-compose up --build --force-recreate  # Force rebuild everything
 
-# Start with build (recommended for first run or after changes)
-docker-compose up --build
-
-# Start specific services
-docker-compose up backend db redis
+# Alternative single commands for all services
+docker-compose up                       # Start without rebuild
+docker-compose up -d                    # Start in background
+docker-compose restart                  # Restart all services
 
 # Stop all services
-docker-compose down
+docker-compose down                     # Stop and remove containers
+docker-compose down -v                  # Stop and remove volumes (⚠️ destroys data)
+docker-compose stop                     # Stop without removing
 
-# Stop and remove volumes (⚠️ destroys data)
-docker-compose down -v
+# Start specific services (if needed)
+docker-compose up backend db redis     # Start only backend services
+docker-compose up frontend             # Start only frontend
 
-# View service logs
-docker-compose logs backend
-docker-compose logs -f frontend  # Follow logs
+# View service logs (all services)
+docker-compose logs                     # All logs
+docker-compose logs -f                  # Follow all logs (real-time)
+docker-compose logs --tail=100         # Last 100 lines from all services
 ```
 
 #### Development Workflow
@@ -244,11 +278,199 @@ ws.send(JSON.stringify({
 
 ## 🧪 Testing
 
-Comprehensive test suite with 18+ test modules covering:
+Comprehensive test suite with 18+ test modules covering unit tests, integration tests, performance tests, security tests, and real-time WebSocket functionality.
 
+### Running Tests with Docker
+
+#### 🚀 Quick Test Commands
+
+**Run all tests in Docker containers:**
 ```bash
-# Run all tests
+# Option 1: Run tests in existing containers (services must be running)
+docker-compose exec backend pytest
+
+# Option 2: Run tests in fresh containers (recommended)
+docker-compose run --rm backend pytest
+
+# Option 3: Run tests with coverage report
+docker-compose run --rm backend pytest --cov=app --cov-report=html tests/
+
+# Option 4: Run tests in background services
+docker-compose up -d db redis
+docker-compose run --rm backend pytest
+```
+
+#### 📊 Comprehensive Test Execution
+
+**Full test suite with detailed output:**
+```bash
+# Run all tests with verbose output
+docker-compose run --rm backend pytest -v
+
+# Run tests with coverage and HTML report
+docker-compose run --rm backend pytest --cov=app --cov-report=html --cov-report=term-missing tests/
+
+# Run tests with JSON output for CI/CD
+docker-compose run --rm backend pytest --json-report --json-report-file=/app/test-report.json
+
+# Run tests with XML output (for CI/CD integration)
+docker-compose run --rm backend pytest --junitxml=/app/test-results.xml
+```
+
+#### 🎯 Specific Test Categories
+
+**Run specific test modules:**
+```bash
+# Service layer tests
+docker-compose run --rm backend pytest tests/test_product_service.py -v
+docker-compose run --rm backend pytest tests/test_provider_service.py -v
+docker-compose run --rm backend pytest tests/test_notification_service.py -v
+
+# API endpoint tests
+docker-compose run --rm backend pytest tests/test_products_api.py -v
+docker-compose run --rm backend pytest tests/test_providers_api.py -v
+docker-compose run --rm backend pytest tests/test_auth_api.py -v
+
+# WebSocket and real-time tests
+docker-compose run --rm backend pytest tests/test_websocket_notifications.py -v
+docker-compose run --rm backend pytest tests/test_realtime_updates.py -v
+
+# Performance and load tests
+docker-compose run --rm backend pytest tests/test_performance.py -v
+docker-compose run --rm backend pytest tests/test_load_testing.py -v
+
+# Security tests
+docker-compose run --rm backend pytest tests/test_security.py -v
+docker-compose run --rm backend pytest tests/test_auth_security.py -v
+```
+
+#### 🏷 Test by Tags/Markers
+
+**Run tests by pytest markers:**
+```bash
+# Run only unit tests
+docker-compose run --rm backend pytest -m "unit"
+
+# Run only integration tests
+docker-compose run --rm backend pytest -m "integration"
+
+# Run only performance tests
+docker-compose run --rm backend pytest -m "performance"
+
+# Run only security tests
+docker-compose run --rm backend pytest -m "security"
+
+# Skip slow tests
+docker-compose run --rm backend pytest -m "not slow"
+
+# Run tests for specific components
+docker-compose run --rm backend pytest -m "products"
+docker-compose run --rm backend pytest -m "providers"
+docker-compose run --rm backend pytest -m "notifications"
+```
+
+#### 🔄 Test Environment Management
+
+**Database and dependencies for testing:**
+```bash
+# Start test dependencies only
+docker-compose up -d db redis
+
+# Run tests with clean database
+docker-compose run --rm -e DATABASE_URL=postgresql+asyncpg://user:password@db:5432/retailtracker_test backend pytest
+
+# Run tests with test environment variables
+docker-compose run --rm --env-file backend/.env.test backend pytest
+
+# Reset test database before tests
+docker-compose exec db createdb -U user retailtracker_test || true
+docker-compose run --rm backend alembic upgrade head
+docker-compose run --rm backend pytest
+```
+
+#### 📈 Parallel Test Execution
+
+**Speed up test execution:**
+```bash
+# Run tests in parallel (requires pytest-xdist)
+docker-compose run --rm backend pytest -n auto
+
+# Run tests with specific number of workers
+docker-compose run --rm backend pytest -n 4
+
+# Run tests in parallel with coverage
+docker-compose run --rm backend pytest -n auto --cov=app --cov-report=html
+```
+
+#### 🐛 Debug and Development Testing
+
+**Interactive testing and debugging:**
+```bash
+# Run tests with debugger support
+docker-compose run --rm backend pytest --pdb
+
+# Run tests with print statements visible
+docker-compose run --rm backend pytest -s
+
+# Run specific test function
+docker-compose run --rm backend pytest tests/test_product_service.py::test_create_product -v
+
+# Run tests with live logs
+docker-compose run --rm backend pytest --log-cli-level=INFO
+
+# Run tests with custom fixtures
+docker-compose run --rm backend pytest --fixtures tests/conftest.py
+```
+
+#### 📋 Test Reporting and CI/CD Integration
+
+**Generate test reports:**
+```bash
+# Generate HTML coverage report
+docker-compose run --rm backend pytest --cov=app --cov-report=html tests/
+# View report at: backend/htmlcov/index.html
+
+# Generate multiple report formats
+docker-compose run --rm backend pytest \
+  --cov=app \
+  --cov-report=html \
+  --cov-report=xml \
+  --cov-report=term-missing \
+  --junitxml=test-results.xml \
+  tests/
+
+# Generate badge-friendly coverage data
+docker-compose run --rm backend pytest --cov=app --cov-report=json tests/
+```
+
+#### 🔧 Test Configuration
+
+**Custom test configurations:**
+```bash
+# Run tests with custom pytest.ini
+docker-compose run --rm -v $(pwd)/pytest.ini:/app/pytest.ini backend pytest
+
+# Run tests with environment-specific config
+docker-compose run --rm backend pytest -c pytest.docker.ini
+
+# Run tests with custom logging
+docker-compose run --rm backend pytest --log-level=DEBUG
+
+# Run tests with profiling
+docker-compose run --rm backend pytest --profile tests/
+```
+
+### Local Testing (without Docker)
+
+**For development without containers:**
+```bash
+# Backend setup
 cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Run tests locally
 pytest
 
 # Run specific test modules
@@ -258,6 +480,39 @@ pytest tests/test_websocket_notifications.py -v
 
 # Run with coverage
 pytest --cov=app tests/
+```
+
+### Frontend Testing (if applicable)
+
+**Test Next.js frontend:**
+```bash
+# Run frontend tests
+docker-compose run --rm frontend npm test
+
+# Run frontend tests with coverage
+docker-compose run --rm frontend npm run test:coverage
+
+# Run frontend e2e tests
+docker-compose run --rm frontend npm run test:e2e
+```
+
+### Test Database Management
+
+**Database operations for testing:**
+```bash
+# Create test database
+docker-compose exec db createdb -U user retailtracker_test
+
+# Run migrations on test database
+docker-compose run --rm -e DATABASE_URL=postgresql+asyncpg://user:password@db:5432/retailtracker_test backend alembic upgrade head
+
+# Drop test database
+docker-compose exec db dropdb -U user retailtracker_test
+
+# Reset test database
+docker-compose exec db dropdb -U user retailtracker_test || true
+docker-compose exec db createdb -U user retailtracker_test
+docker-compose run --rm -e DATABASE_URL=postgresql+asyncpg://user:password@db:5432/retailtracker_test backend alembic upgrade head
 ```
 
 **Test Coverage:**
